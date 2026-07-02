@@ -1,0 +1,12 @@
+# Default toolchain for the workspace.
+#
+# This is the fallback used when running rustup/cargo from the workspace root.
+# Each sub-repo pins its own toolchain via its own rust-toolchain.toml (nearest
+# file wins), so this does not override e.g. lockboot (1.91.0) or stage0
+# (1.91.1) when working inside them. All resolved toolchains are installed once
+# into the shared RUSTUP_HOME ($WORKSPACE/.rustup).
+[toolchain]
+channel = "1.91.1"
+components = ["rustfmt", "clippy"]
+targets = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"]
+profile = "minimal"

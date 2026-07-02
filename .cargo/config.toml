@@ -1,0 +1,40 @@
+# Shared Cargo configuration for the whole Lock.Boot workspace.
+#
+# Because CARGO_HOME points at this directory ($WORKSPACE/.cargo), this file is
+# loaded for every cargo invocation in the workspace, AND it is picked up via
+# Cargo's hierarchical config discovery when running inside any sub-repo. A
+# sub-repo's own .cargo/config.toml (e.g. lockboot's) takes precedence on any
+# key it sets; this file provides the shared defaults.
+#
+# NOTE: we deliberately do NOT set `[build] target` here. The house style is
+# static musl, but forcing a global default target would break the gnu-host
+# repos (vaportpm, the risc0 host crate in vaportpm-zk) and the Python site
+# (wavebend.org). Repos that want musl-by-default set it in their own
+# .cargo/config.toml (lockboot and os402 do); everyone else opts in with
+# `--target x86_64-unknown-linux-musl`.
+#
+# We also deliberately do NOT set a linker for the gnu host target here. The
+# musl flags below only bind when a musl target is actually opted into, so they
+# are safe to share; but forcing e.g. `linker=rust-lld` on the default
+# x86_64-unknown-linux-gnu build would apply to vaportpm and the risc0 host
+# crate (which have gcc and may link C deps) - leave gnu linking to each repo.
+
+[target.x86_64-unknown-linux-musl]
+# Fully static linking with rustc's bundled musl and the built-in rust-lld
+# linker (no system cc needed).
+rustflags = [
+    "-C", "linker=rust-lld",
+    "-C", "target-feature=+crt-static",
+    "-C", "link-arg=-static",
+]
+
+[target.aarch64-unknown-linux-musl]
+rustflags = [
+    "-C", "linker=rust-lld",
+    "-C", "target-feature=+crt-static",
+    "-C", "link-arg=-static",
+]
+
+[env]
+# Reproducible builds by default across every repo.
+SOURCE_DATE_EPOCH = "0"

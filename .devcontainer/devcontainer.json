@@ -1,0 +1,56 @@
+{
+  // Lock.Boot workspace devcontainer. Its ONLY job is to be the environment you
+  // edit in and drive builds from - bind-mount the workspace at /src, host
+  // networking, docker-outside-of-docker (host socket), and /dev/kvm. Actual
+  // builds run in lockboot:build / lockboot:harness, spawned by each repo's
+  // Makefile. The image is lean and built locally (see ./Dockerfile).
+  //
+  // We use the docker-compose form so the host-specific uid/gid and the gids
+  // that own the docker socket + /dev/kvm are NOT hardcoded: prepare-env.sh
+  // (initializeCommand) captures them from THIS machine and writes them into
+  // docker-compose.host.yml, which is merged on top of docker-compose.yml.
+  "name": "Lock.Boot Workspace",
+  "dockerComposeFile": ["docker-compose.yml", "docker-compose.host.yml"],
+  "service": "workspace",
+  "workspaceFolder": "/src",
+
+  // Runs on the host before the container starts; writes docker-compose.host.yml.
+  "initializeCommand": "bash .devcontainer/prepare-env.sh",
+
+  // No "remoteUser": VS Code then runs terminals as the compose service `user:`
+  // (= your host uid:gid), which is exactly what we want for bind-mount ownership.
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "anthropic.claude-code",
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "serayuzgur.crates"
+      ],
+      "settings": {
+        "telemetry.telemetryLevel": "off",
+        "terminal.integrated.defaultProfile.linux": "bash",
+        // The 6 sibling repos are heterogeneous (workspaces, crates/ layouts,
+        // nested risc0 workspaces), so point rust-analyzer at the real manifest
+        // roots instead of letting it wander the whole tree (incl. the shared
+        // .cargo/registry). Paths are relative to /src.
+        "rust-analyzer.linkedProjects": [
+          "lockboot/Cargo.toml",
+          "os402/Cargo.toml",
+          "stage0/crates/ena/Cargo.toml",
+          "stage0/crates/stage0/Cargo.toml",
+          "stage0/crates/stage0-test-payload/Cargo.toml",
+          "vaportpm/Cargo.toml",
+          "vaportpm-zk/risc-zero/Cargo.toml"
+        ],
+        "files.watcherExclude": {
+          "**/.cargo/registry/**": true,
+          "**/.cargo/git/**": true,
+          "**/.rustup/**": true,
+          "**/target/**": true
+        }
+      }
+    }
+  }
+}

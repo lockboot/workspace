@@ -1,0 +1,23 @@
+# Compose form of the workspace devcontainer. We use compose (not a plain image
+# + runArgs) so the host-specific identity and device group-ids can be supplied
+# per-machine WITHOUT hardcoding: prepare-env.sh generates docker-compose.host.yml
+# (merged on top of this file by the devcontainer) with `user:` + `group_add:`
+# for THIS box. Everything here is a BIND MOUNT; there are no named Docker volumes.
+services:
+  workspace:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # `build.args` (USER_UID/USER_GID), `user:` and `group_add:` all come from
+    # the generated, per-host docker-compose.host.yml.
+    network_mode: host
+    privileged: true
+    volumes:
+      - ..:/src                                          # workspace bind-mounted at /src
+      - /var/run/docker.sock:/var/run/docker.sock        # docker-outside-of-docker
+      - /dev/kvm:/dev/kvm                                # KVM acceleration
+      - /dev/tpm0:/dev/tpm0                              # host TPM passthrough (testing)
+      - /dev/tpmrm0:/dev/tpmrm0
+    working_dir: /src
+    # Keep the container alive; VS Code attaches and opens terminals into it.
+    command: sleep infinity
