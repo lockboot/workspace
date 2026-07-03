@@ -1,6 +1,7 @@
 # --- Sub-repositories -------------------------------------------------------
 # These are independent git repos, managed via the Makefile (make clone / pull).
 # The workspace repo does NOT track them (no submodules).
+/dotgithub/
 /os402/
 /stage0/
 /stage1/
@@ -45,3 +46,4 @@
 .local
 .config
 .docker
+.wget-hsts

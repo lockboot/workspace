@@ -27,7 +27,7 @@ workspace/                (= /src inside the devcontainer)
 ├── rust-toolchain.toml   # default toolchain; each repo's own file wins by nearest
 ├── Makefile              # clone / pull / status / image / clean-cache
 ├── .devcontainer/        # the lean "driver" container (see below)
-├── os402/  stage0/  stage1/  vaportpm/  vaportpm-zk/  wavebend.org/   # plain clones
+├── dotgithub/  os402/  stage0/  stage1/  vaportpm/  vaportpm-zk/  wavebend.org/   # plain clones
 ```
 
 The sub-repos are **plain clones, not git submodules** of this workspace — they're managed by

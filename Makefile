@@ -19,7 +19,11 @@
 # will not build.
 
 GITHUB_BASEURL := https://github.com/lockboot
+# dotgithub = the org meta repo (github.com/lockboot/.github): org profile README
+# (profile/README.md) + default community-health files. Cloned under a non-dot name
+# so it is not mistaken for this workspace's own .github/ dir.
 REPOS := \
+	dotgithub=$(GITHUB_BASEURL)/.github.git \
 	os402=$(GITHUB_BASEURL)/os402.git \
 	stage0=$(GITHUB_BASEURL)/stage0.git \
 	stage1=$(GITHUB_BASEURL)/stage1.git \
