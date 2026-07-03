@@ -36,7 +36,7 @@
         // roots instead of letting it wander the whole tree (incl. the shared
         // .cargo/registry). Paths are relative to /src.
         "rust-analyzer.linkedProjects": [
-          "lockboot/Cargo.toml",
+          "stage1/Cargo.toml",
           "os402/Cargo.toml",
           "stage0/crates/ena/Cargo.toml",
           "stage0/crates/stage0/Cargo.toml",

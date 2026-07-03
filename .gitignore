@@ -1,9 +1,9 @@
 # --- Sub-repositories -------------------------------------------------------
 # These are independent git repos, managed via the Makefile (make clone / pull).
 # The workspace repo does NOT track them (no submodules).
-/lockboot/
 /os402/
 /stage0/
+/stage1/
 /vaportpm/
 /vaportpm-zk/
 /wavebend.org/
@@ -44,4 +44,4 @@
 .lesshst
 .local
 .config
-
+.docker

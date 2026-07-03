@@ -27,7 +27,7 @@ workspace/                (= /src inside the devcontainer)
 ├── rust-toolchain.toml   # default toolchain; each repo's own file wins by nearest
 ├── Makefile              # clone / pull / status / image / clean-cache
 ├── .devcontainer/        # the lean "driver" container (see below)
-├── lockboot/  os402/  stage0/  vaportpm/  vaportpm-zk/  wavebend.org/   # plain clones
+├── os402/  stage0/  stage1/  vaportpm/  vaportpm-zk/  wavebend.org/   # plain clones
 ```
 
 The sub-repos are **plain clones, not git submodules** of this workspace — they're managed by
@@ -83,19 +83,17 @@ from `stage0` (the canonical/reference project).
 ## Toolchain & target policy
 
 - `rust-toolchain.toml` here pins a **default** (`1.91.1`); each sub-repo's own
-  `rust-toolchain.toml` wins by nearest-file (e.g. lockboot `1.91.0`, stage0 `1.91.1`). The
+  `rust-toolchain.toml` wins by nearest-file (e.g. stage1 `1.91.0`, stage0 `1.91.1`). The
   risc0 guest in `vaportpm-zk` uses its own `rzup`-managed toolchain. All install once into the
   shared `.rustup`.
 - `.cargo/config.toml` sets `SOURCE_DATE_EPOCH=0` and static-musl link flags that **only bind
   when a musl target is opted into**. It deliberately sets **no** global `[build] target` and
   **no** gnu-host linker override, so the gnu-host repos (`vaportpm`, the risc0 host crate) and
   the Python site (`wavebend.org`) are never forced into musl/`rust-lld`. Repos that want
-  musl-by-default (lockboot, os402) set it in their own config.
+  musl-by-default (stage1, os402) set it in their own config.
 
 ## Known follow-ups
 
-- **`lockboot/Makefile` still mounts only its own repo at `/src`** (old per-repo style) rather
-  than the parent workspace like `stage0/Makefile` does. It will get the stage0 workspace-mount
-  + `findmnt` host-path-translation treatment as part of the **lockboot → stage1** conversion.
-- The per-repo `.devcontainer/` dirs in `lockboot`, `os402`, `vaportpm` are now redundant; they
-  can be removed in each of those repos when convenient.
+- The per-repo `.devcontainer/` dirs in `os402` and `vaportpm` are now redundant (the workspace
+  devcontainer is authoritative); they can be removed in each of those repos when convenient.
+  (`stage1` already dropped its own as part of the lockboot → stage1 conversion.)

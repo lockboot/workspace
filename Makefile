@@ -20,14 +20,14 @@
 
 GITHUB_BASEURL := https://github.com/lockboot
 REPOS := \
-	lockboot=$(GITHUB_BASEURL)/lockboot.git \
 	os402=$(GITHUB_BASEURL)/os402.git \
 	stage0=$(GITHUB_BASEURL)/stage0.git \
+	stage1=$(GITHUB_BASEURL)/stage1.git \
 	vaportpm=$(GITHUB_BASEURL)/vaportpm.git \
 	vaportpm-zk=$(GITHUB_BASEURL)/vaportpm-zk.git
 
 # The canonical build Dockerfiles live in stage0 (the reference project; the copy
-# in lockboot is kept byte-identical). Build the shared "lockboot family" images
+# in stage1 is kept byte-identical). Build the shared "lockboot family" images
 # from there. These images are built locally and never published.
 CANON := stage0
 
