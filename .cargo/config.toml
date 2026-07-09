@@ -1,22 +1,14 @@
-# Shared Cargo configuration for the whole Lock.Boot workspace.
+# Shared Cargo configuration for the whole Lock.Boot workspace (loaded via CARGO_HOME, and via
+# hierarchical discovery inside any sub-repo). It carries ONLY workspace-wide settings; rustflags and
+# `[build] target` live in each repo's own .cargo/config.toml, for two reasons:
 #
-# Because CARGO_HOME points at this directory ($WORKSPACE/.cargo), this file is loaded for every
-# cargo invocation in the workspace, AND it is picked up via Cargo's hierarchical config discovery
-# when running inside any sub-repo.
+#   - CI checks out each repo ALONE (no workspace parent, CARGO_HOME redirected), so anything a build
+#     needs must be in the repo, or CI and local diverge.
+#   - Cargo CONCATENATES `rustflags` across config files (a sub-repo's does NOT override this one), so
+#     defining flags both here and in a repo would double them and change the compiled bytes.
 #
-# This file carries ONLY workspace-wide settings that every repo should share (currently just the
-# reproducible-build epoch). It deliberately sets NO per-target `rustflags` and NO `[build] target`:
-#
-#   - Rustflags live in each repo's own .cargo/config.toml. That is required for reproducibility:
-#     CI checks out each repo ALONE (no workspace parent, CARGO_HOME redirected), so a repo that
-#     relied on rustflags defined here would build differently in CI than locally. It is also the
-#     only correct behaviour given that Cargo CONCATENATES `rustflags` arrays across config files
-#     (a sub-repo's does NOT override the workspace's) -- defining musl flags both here and in a
-#     repo would double them and change every compiled binary's bytes.
-#   - No `[build] target`: forcing a default target would break the gnu-host repos (vaportpm, the
-#     risc0 host crate in vaportpm-zk) and the Python site (wavebend.org). Musl repos (stage0,
-#     stage1, os402) set `[build] target`/rustflags in their own config; gnu-host repos opt into
-#     musl per-build with `--target x86_64-unknown-linux-musl` (and their own rustflags if wanted).
+# No `[build] target` here either: it would break the gnu-host repos (vaportpm, vaportpm-zk) and the
+# Python site (wavebend.org). Musl repos set their own; gnu-host repos opt in with `--target musl`.
 
 [env]
 # Reproducible builds by default across every repo.
