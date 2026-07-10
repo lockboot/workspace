@@ -42,7 +42,7 @@ own `target/` (we share the registry, not build outputs).
 
 | Image | Purpose | Where it's defined | Builds Rust? |
 |-------|---------|--------------------|:---:|
-| `lockboot:build` | Reproducible Rust builds: pinned toolchain, identical `/src/.cargo`+`/src/.rustup` paths, static-musl RUSTFLAGS. | `Dockerfile.build`, kept **byte-identical in each project** (canonical copy in `stage0`) so CI can build each repo standalone. | ✅ |
+| `lockboot:build` | Reproducible Rust builds: pinned toolchain, committed lockfiles, per-target static-musl rustflags + path remapping (see [`REPRODUCIBLE-BUILDS.md`](REPRODUCIBLE-BUILDS.md)). | `Dockerfile.build`, kept **byte-identical in each project** (canonical copy in `stage0`) so CI can build each repo standalone. | ✅ |
 | `lockboot:harness` | Lean QEMU runner for stage0's boot tests (boots a disk, mocks EC2 metadata). Entrypoint-baked. | `stage0/Dockerfile.harness` | ❌ |
 | **workspace devcontainer** | The environment you **edit in and drive builds from**: bind `/src`, host network, docker-outside-of-docker, `/dev/kvm`. | `.devcontainer/Dockerfile` (this repo, lean) | ❌ |
 
@@ -83,14 +83,17 @@ from `stage0` (the canonical/reference project).
 ## Toolchain & target policy
 
 - `rust-toolchain.toml` here pins a **default** (`1.91.1`); each sub-repo's own
-  `rust-toolchain.toml` wins by nearest-file (e.g. stage1 `1.91.0`, stage0 `1.91.1`). The
-  risc0 guest in `vaportpm-zk` uses its own `rzup`-managed toolchain. All install once into the
-  shared `.rustup`.
-- `.cargo/config.toml` sets `SOURCE_DATE_EPOCH=0` and static-musl link flags that **only bind
-  when a musl target is opted into**. It deliberately sets **no** global `[build] target` and
-  **no** gnu-host linker override, so the gnu-host repos (`vaportpm`, the risc0 host crate) and
-  the Python site (`wavebend.org`) are never forced into musl/`rust-lld`. Repos that want
-  musl-by-default (stage1, os402) set it in their own config.
+  `rust-toolchain.toml` wins by nearest-file. stage0 and stage1 both pin `1.91.1` and are kept in
+  **lockstep** (they must produce byte-compatible builds). The risc0 guest in `vaportpm-zk` uses its
+  own `rzup`-managed toolchain. All install once into the shared `.rustup`.
+- The shared `.cargo/config.toml` carries only workspace-wide `[env]` (`SOURCE_DATE_EPOCH=0`). Each
+  repo owns its per-target rustflags (static-musl linking, path remapping) in its **own**
+  `.cargo/config.toml` -- CI builds each repo standalone without this workspace file, so anything a
+  build needs must live in the repo. This file sets **no** global `[build] target` and **no** gnu-host
+  linker override, so the gnu-host repos (`vaportpm`, the risc0 host crate) and the Python site
+  (`wavebend.org`) are never forced into musl/`rust-lld`.
+- See [`REPRODUCIBLE-BUILDS.md`](REPRODUCIBLE-BUILDS.md) for how CI and local builds are kept
+  byte-identical, and what to update on a toolchain bump.
 
 ## Known follow-ups
 
