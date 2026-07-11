@@ -87,6 +87,38 @@ image: ## Build the shared lockboot:build + lockboot:harness images from stage0 
 	@echo ">> Built lockboot:build and lockboot:harness. The devcontainer image is built"
 	@echo ">> separately by VS Code from .devcontainer/Dockerfile on 'Reopen in Container'."
 
+# The shared build harness (build.mk + Dockerfile.build) has ONE canonical source in $(CANON) and is
+# vendored byte-identically into each participating repo, because CI checks out each repo ALONE (no
+# workspace parent) so the harness cannot be a cross-repo include. `sync-harness` re-propagates it;
+# `check-harness` fails on drift, replacing the old manual "keep identical" discipline. vaportpm-zk is
+# excluded (risc0/rzup toolchain, not lockboot:build); os402 is not yet normalized.
+HARNESS_REPOS := stage1 vaportpm
+HARNESS_FILES := build.mk Dockerfile.build
+
+.PHONY: sync-harness
+sync-harness: ## Copy the canonical build.mk + Dockerfile.build from stage0 into stage1 + vaportpm
+	@for r in $(HARNESS_REPOS); do \
+		for f in $(HARNESS_FILES); do \
+			cp -v $(CANON)/$$f "$$r/$$f"; \
+		done; \
+	done
+
+.PHONY: check-harness
+check-harness: ## Fail if any repo's build.mk / Dockerfile.build drifted from stage0's canonical copy
+	@drift=0; \
+	for r in $(HARNESS_REPOS); do \
+		for f in $(HARNESS_FILES); do \
+			if ! cmp -s $(CANON)/$$f "$$r/$$f"; then \
+				echo "DRIFT: $$r/$$f differs from $(CANON)/$$f"; drift=1; \
+			fi; \
+		done; \
+	done; \
+	if [ $$drift -eq 0 ]; then \
+		echo "harness OK: build.mk + Dockerfile.build identical across $(CANON) $(HARNESS_REPOS)"; \
+	else \
+		echo ">> run 'make sync-harness' (or reconcile the canonical $(CANON) copy)"; exit 1; \
+	fi
+
 .PHONY: clean-cache
 clean-cache: ## Delete the shared cargo registry/git cache, rustup toolchains and stray target dirs
 	rm -rf .cargo/registry .cargo/git .cargo/bin .cargo/.package-cache .rustup target
