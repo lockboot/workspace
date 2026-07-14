@@ -28,6 +28,7 @@ REPOS := \
 	stage0=$(GITHUB_BASEURL)/stage0.git \
 	stage1=$(GITHUB_BASEURL)/stage1.git \
 	vaportpm=$(GITHUB_BASEURL)/vaportpm.git \
+	stage2=$(GITHUB_BASEURL)/stage2.git \
 	vaportpm-zk=$(GITHUB_BASEURL)/vaportpm-zk.git
 
 # The canonical build Dockerfiles live in stage0 (the reference project; the copy
@@ -118,6 +119,17 @@ check-harness: ## Fail if any repo's build.mk / Dockerfile.build drifted from st
 	else \
 		echo ">> run 'make sync-harness' (or reconcile the canonical $(CANON) copy)"; exit 1; \
 	fi
+
+# One canonical branch ruleset applied to every governed repo (PR-gated, no force-push/deletion,
+# no linear-history, per-repo CI gate) so branch protection can't drift like it did before. The
+# policy lives in tools/rulesets.sh (no JSON on disk); needs `gh` with admin + `jq`.
+.PHONY: sync-rulesets
+sync-rulesets: ## Apply the canonical branch ruleset to every governed repo (needs gh admin)
+	@tools/rulesets.sh sync
+
+.PHONY: check-rulesets
+check-rulesets: ## Fail if any governed repo's branch ruleset drifted from the policy
+	@tools/rulesets.sh check
 
 .PHONY: clean-cache
 clean-cache: ## Delete the shared cargo registry/git cache, rustup toolchains and stray target dirs
