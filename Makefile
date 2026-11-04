@@ -125,7 +125,8 @@ check-harness: ## Fail if any repo's build.mk / Dockerfile.build drifted from st
 # order (each stage boots the previous stage's artifacts): build stage0 + stage1, then each repo's
 # own `selftest-<arch>` (stage0 boot matrix; stage1 chain modes + smoke-args; stage2 pivot + grow).
 # `selftest` also runs vaportpm's arch-independent `make ci` once, then both arches.
-# x86_64 boots under KVM; aarch64 is TCG-emulated on an x86_64 host -- slow, but the same tests.
+# x86_64 boots under KVM; aarch64 is TCG-emulated on an x86_64 host -- the same tests, and the
+# boot phase takes ~12 min per arch either way.
 # Logs land in each repo's build/<arch>/; the summary is printed at the end.
 SELFTEST_ARCHS := x86_64 aarch64
 
@@ -156,14 +157,15 @@ selftest-x86_64 selftest-aarch64: selftest-%:
 	[ "$$fail" = 0 ]
 
 # One canonical branch ruleset applied to every governed repo (PR-gated, no force-push/deletion,
-# no linear-history, per-repo CI gate) so branch protection can't drift like it did before. The
+# no linear-history, per-repo CI gate) so branch protection can't drift like it did before -- plus,
+# on release repos, a release-tag ruleset and immutable releases. The
 # policy lives in tools/rulesets.sh (no JSON on disk); needs `gh` with admin + `jq`.
 .PHONY: sync-rulesets
-sync-rulesets: ## Apply the canonical branch ruleset to every governed repo (needs gh admin)
+sync-rulesets: ## Apply the branch ruleset (+ release-tag ruleset, immutable releases) to every governed repo (needs gh admin)
 	@tools/rulesets.sh sync
 
 .PHONY: check-rulesets
-check-rulesets: ## Fail if any governed repo's branch ruleset drifted from the policy
+check-rulesets: ## Fail if any governed repo's rulesets or immutable-releases setting drifted from the policy
 	@tools/rulesets.sh check
 
 .PHONY: clean-cache

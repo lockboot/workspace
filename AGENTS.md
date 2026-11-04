@@ -61,6 +61,10 @@ Out of scope -- do not fold into the chain or org overviews: **os402** (dormant 
   `ci build-x86_64 build-aarch64` (stage0/1/2), `ci` (vaportpm), none (.github / workspace). `sync`
   also deletes any legacy differently-named ruleset. `make check-rulesets` catches drift and is the
   source of truth for branch protection -- change the policy in the script, not the GitHub UI.
+- Release repos (stage0 `stage0-v*`, stage1 `uki-v*`, stage2 `stage2-v*`, vaportpm `v*`) also get,
+  from the same script: a **`lockboot-release-tags`** tag ruleset (only admins create release tags;
+  none can be moved or deleted) and **immutable releases** (published assets + tag are locked; a bad
+  release is deprecated via notes/flags or deleted -- its tag name is never reusable -- not edited).
 
 ## Git & PR workflow
 
