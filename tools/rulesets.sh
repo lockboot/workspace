@@ -35,14 +35,12 @@ TAG_RULESET_NAME=lockboot-release-tags
 REPOS=(stage0 stage1 stage2 vaportpm .github workspace)
 
 # GitHub repo name -> release-tag ref pattern (empty = the repo cuts no releases: no tag
-# ruleset, no immutable-releases setting). Must match the tags each release workflow triggers on.
+# ruleset, no immutable-releases setting). Every release repo uses plain `v*` (one product per
+# repo); must match the tags each release workflow triggers on.
 release_tag_pattern() {
   case "$1" in
-    stage0)            echo "refs/tags/stage0-v*" ;;
-    stage1)            echo "refs/tags/uki-v*" ;;
-    stage2)            echo "refs/tags/stage2-v*" ;;
-    vaportpm)          echo "refs/tags/v*" ;;
-    .github|workspace) echo "" ;;
+    stage0|stage1|stage2|vaportpm) echo "refs/tags/v*" ;;
+    .github|workspace)             echo "" ;;
     *) return 1 ;;
   esac
 }
