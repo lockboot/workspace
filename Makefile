@@ -120,6 +120,41 @@ check-harness: ## Fail if any repo's build.mk / Dockerfile.build drifted from st
 		echo ">> run 'make sync-harness' (or reconcile the canonical $(CANON) copy)"; exit 1; \
 	fi
 
+# Whole-chain self-test across the CURRENT checkouts of the sibling repos (whatever branch each is
+# on), so a cross-repo changeset is tested together before any of it merges. Per arch, in chain
+# order (each stage boots the previous stage's artifacts): build stage0 + stage1, then each repo's
+# own `selftest-<arch>` (stage0 boot matrix; stage1 chain modes + smoke-args; stage2 pivot + grow).
+# `selftest` also runs vaportpm's arch-independent `make ci` once, then both arches.
+# x86_64 boots under KVM; aarch64 is TCG-emulated on an x86_64 host -- slow, but the same tests.
+# Logs land in each repo's build/<arch>/; the summary is printed at the end.
+SELFTEST_ARCHS := x86_64 aarch64
+
+.PHONY: selftest
+selftest: ## Self-test the whole chain on both arches (+ vaportpm ci); PASS/FAIL summary
+	@sum=$$(mktemp); fail=0; \
+	if $(MAKE) --no-print-directory -C vaportpm ci; then echo "PASS  vaportpm  ci" >> "$$sum"; \
+	else echo "FAIL  vaportpm  ci" >> "$$sum"; fail=1; fi; \
+	for a in $(SELFTEST_ARCHS); do \
+		$(MAKE) --no-print-directory selftest-$$a SELFTEST_SUMMARY="$$sum" || fail=1; \
+	done; \
+	echo "==================== workspace self-test summary"; cat "$$sum"; rm -f -- "$$sum"; \
+	if [ "$$fail" = 0 ]; then echo "ALL SELF-TESTS PASSED"; else echo "SOME SELF-TESTS FAILED"; exit 1; fi
+
+.PHONY: selftest-x86_64 selftest-aarch64
+selftest-x86_64 selftest-aarch64: selftest-%:
+	@sum="$${SELFTEST_SUMMARY:-/dev/null}"; fail=0; \
+	step() { label="$$1"; shift; echo ">> [$*] $$label"; \
+		if "$$@"; then echo "PASS  $$label" >> "$$sum"; else echo "FAIL  $$label" >> "$$sum"; return 1; fi; }; \
+	step "stage0  $* build"    $(MAKE) --no-print-directory -C stage0 build-$* \
+	&& step "stage1  $* build" $(MAKE) --no-print-directory -C stage1 build-$* \
+	|| fail=1; \
+	if [ "$$fail" = 0 ]; then \
+		step "stage0  $* selftest" $(MAKE) --no-print-directory -C stage0 selftest-$* || fail=1; \
+		step "stage1  $* selftest" $(MAKE) --no-print-directory -C stage1 selftest-$* || fail=1; \
+		step "stage2  $* selftest" $(MAKE) --no-print-directory -C stage2 selftest-$* || fail=1; \
+	fi; \
+	[ "$$fail" = 0 ]
+
 # One canonical branch ruleset applied to every governed repo (PR-gated, no force-push/deletion,
 # no linear-history, per-repo CI gate) so branch protection can't drift like it did before. The
 # policy lives in tools/rulesets.sh (no JSON on disk); needs `gh` with admin + `jq`.
