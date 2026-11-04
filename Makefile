@@ -95,27 +95,27 @@ image: ## Build the shared lockboot:build + lockboot:harness images from stage0 
 # excluded (risc0/rzup toolchain, not lockboot:build); os402 is not yet normalized.
 HARNESS_REPOS := stage1 vaportpm
 HARNESS_FILES := build.mk Dockerfile.build
+# stage2 vendors Dockerfile.build only (its Makefile has its own DOCKER_RUN, no build.mk).
+HARNESS_DOCKERFILE_REPOS := stage2
+HARNESS_PATHS := $(foreach r,$(HARNESS_REPOS),$(addprefix $(r)/,$(HARNESS_FILES))) \
+                 $(addsuffix /Dockerfile.build,$(HARNESS_DOCKERFILE_REPOS))
 
 .PHONY: sync-harness
-sync-harness: ## Copy the canonical build.mk + Dockerfile.build from stage0 into stage1 + vaportpm
-	@for r in $(HARNESS_REPOS); do \
-		for f in $(HARNESS_FILES); do \
-			cp -v $(CANON)/$$f "$$r/$$f"; \
-		done; \
+sync-harness: ## Copy the canonical build.mk + Dockerfile.build from stage0 into stage1 + vaportpm (+ Dockerfile.build into stage2)
+	@for p in $(HARNESS_PATHS); do \
+		cp -v $(CANON)/$${p#*/} "$$p"; \
 	done
 
 .PHONY: check-harness
 check-harness: ## Fail if any repo's build.mk / Dockerfile.build drifted from stage0's canonical copy
 	@drift=0; \
-	for r in $(HARNESS_REPOS); do \
-		for f in $(HARNESS_FILES); do \
-			if ! cmp -s $(CANON)/$$f "$$r/$$f"; then \
-				echo "DRIFT: $$r/$$f differs from $(CANON)/$$f"; drift=1; \
-			fi; \
-		done; \
+	for p in $(HARNESS_PATHS); do \
+		if ! cmp -s $(CANON)/$${p#*/} "$$p"; then \
+			echo "DRIFT: $$p differs from $(CANON)/$${p#*/}"; drift=1; \
+		fi; \
 	done; \
 	if [ $$drift -eq 0 ]; then \
-		echo "harness OK: build.mk + Dockerfile.build identical across $(CANON) $(HARNESS_REPOS)"; \
+		echo "harness OK: $(HARNESS_PATHS) identical to $(CANON)"; \
 	else \
 		echo ">> run 'make sync-harness' (or reconcile the canonical $(CANON) copy)"; exit 1; \
 	fi
