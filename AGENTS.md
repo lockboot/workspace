@@ -70,6 +70,9 @@ Out of scope -- do not fold into the chain or org overviews: **os402** (dormant 
 - **Commit messages and PR bodies are plain ASCII** -- no em dashes or smart punctuation; use `-`,
   `--`, `->`, straight quotes. (`git log -1 --format=%B | grep -nP '[^\x00-\x7F]'` should print nothing.)
 - **Open PRs as draft** (`gh pr create --draft`); the author marks them ready.
+- **One PR per repo per changeset.** Follow-up work for the same changeset is a new commit on the
+  open PR's branch, never a sibling PR. A cross-repo changeset is one branch per repo, tested
+  together (both arches) before any of it merges -- main only receives sets that work as a whole.
 - **Merge with a merge commit** (`gh pr merge <n> --merge --delete-branch`), not squash (squash is
   disabled; the ruleset allows merge commits on every repo, workspace included).
 - **After a merge, `git checkout main && git pull --ff-only` before new work** -- never keep committing
