@@ -120,6 +120,60 @@ check-harness: ## Fail if any repo's build.mk / Dockerfile.build drifted from st
 		echo ">> run 'make sync-harness' (or reconcile the canonical $(CANON) copy)"; exit 1; \
 	fi
 
+# Cloud publish/launch tooling (aws + coldsnap + gcloud + gh) for stage0/tools/publish, in a local-only
+# image (tools/deploy/). Lives here, not in stage0, so using it never risks a stage0 make target
+# (which would re-mint the Secure Boot keys).
+#
+# Credentials: browser sign-in (passkey/MFA at the IdP) at shell start, to ONLY the clouds named by
+# LOGIN; sign-out/revoke on exit (tools/deploy/entry.sh). Tokens live only in the container's tmpfs
+# $HOME -- never on disk, never under /src (which every lockboot:build container can read). Don't run
+# builds while a logged-in shell is open: the builders are --privileged.
+#   make deploy-shell LOGIN=aws|gcp|both       # sign in, interactive shell, sign out on exit
+#   make deploy-shell                          # tools only, no login
+#   make deploy-shell LOGIN=gcp CMD='gcloud compute images list --no-standard-images'
+#   make deploy-exec CMD='aws sts get-caller-identity'   # run inside the OPEN shell (its login)
+DEPLOY_IMAGE := lockboot:deploy
+# Fixed container name: one deploy session at a time, reachable by `make deploy-exec`.
+DEPLOY_NAME  := lockboot-deploy
+# Defaults match stage0/tools/publish (ec2/*.sh ap-southeast-1, gcp/create.sh asia-southeast1).
+DEPLOY_AWS_REGION  ?= ap-southeast-1
+DEPLOY_GCP_REGION  ?= asia-southeast1
+DEPLOY_GCP_ZONE    ?= $(DEPLOY_GCP_REGION)-a
+DEPLOY_GCP_PROJECT ?= lockboot
+DEPLOY_ENV := -e AWS_REGION=$(DEPLOY_AWS_REGION) -e AWS_DEFAULT_REGION=$(DEPLOY_AWS_REGION) \
+              -e CLOUDSDK_COMPUTE_REGION=$(DEPLOY_GCP_REGION) -e CLOUDSDK_COMPUTE_ZONE=$(DEPLOY_GCP_ZONE) \
+              -e CLOUDSDK_CORE_PROJECT=$(DEPLOY_GCP_PROJECT)
+# docker-in-devcontainer: the host daemon needs the HOST path of the /src bind (as build.mk does).
+DEPLOY_HOST_WS := $(CURDIR)
+ifneq ($(filter /src /src/%,$(CURDIR)),)
+  DEPLOY_SRC_BIND := $(shell findmnt -fnro SOURCE --target /src 2>/dev/null | sed -n 's/.*\[\(.*\)\]$$/\1/p')
+  ifneq ($(DEPLOY_SRC_BIND),)
+    DEPLOY_HOST_WS := $(DEPLOY_SRC_BIND)$(CURDIR:/src%=%)
+  endif
+endif
+
+.PHONY: deploy-image
+deploy-image: ## Build the local lockboot:deploy image (aws CLI, coldsnap, gcloud, gh; all pinned)
+	docker build -t $(DEPLOY_IMAGE) -f tools/deploy/Dockerfile tools/deploy
+
+.PHONY: deploy-shell
+# CMD is handed over verbatim via the environment ($(value) = no make expansion), so `$VAR` in it
+# expands inside the container, not in make. A TTY is used whenever there is a login or no CMD.
+deploy-shell: export DEPLOY_CMD := $(value CMD)
+deploy-shell: deploy-image ## Shell (or CMD='...') in lockboot:deploy; LOGIN=aws|gcp|both signs in at start, out at exit
+	docker run --rm --init --name $(DEPLOY_NAME) $(if $(or $(LOGIN),$(if $(CMD),,tty)),-it) -u $$(id -u):$$(id -g) \
+		--tmpfs /home/deploy:rw,mode=0700,uid=$$(id -u),gid=$$(id -g) \
+		-v $(DEPLOY_HOST_WS):/src $(DEPLOY_ENV) -e DEPLOY_LOGIN=$(LOGIN) -e DEPLOY_CMD -e GH_TOKEN \
+		-w /src $(DEPLOY_IMAGE)
+
+.PHONY: deploy-exec
+# Run CMD inside the RUNNING deploy-shell (same tmpfs $HOME, so the same live login). Fails if no
+# shell is open; the session's lifetime stays with whoever holds the interactive deploy-shell.
+deploy-exec: export DEPLOY_CMD := $(value CMD)
+deploy-exec: ## Run CMD='...' inside the running deploy-shell container (uses its login)
+	@test -n "$$DEPLOY_CMD" || { echo "usage: make deploy-exec CMD='...'" >&2; exit 2; }
+	docker exec -e DEPLOY_CMD -w /src $(DEPLOY_NAME) bash -c 'eval "$$DEPLOY_CMD"'
+
 # Whole-chain self-test across the CURRENT checkouts of the sibling repos (whatever branch each is
 # on), so a cross-repo changeset is tested together before any of it merges. Per arch, in chain
 # order (each stage boots the previous stage's artifacts): build stage0 + stage1, then each repo's
