@@ -138,7 +138,8 @@ DEPLOY_NAME  := lockboot-deploy
 # Defaults match stage0/tools/publish (ec2/*.sh ap-southeast-1, gcp/create.sh asia-southeast1).
 DEPLOY_AWS_REGION  ?= ap-southeast-1
 DEPLOY_GCP_REGION  ?= asia-southeast1
-DEPLOY_GCP_ZONE    ?= $(DEPLOY_GCP_REGION)-a
+# -b: t2a (aarch64) is not offered in asia-southeast1-a; n2d SEV-SNP is in a/b/c.
+DEPLOY_GCP_ZONE    ?= $(DEPLOY_GCP_REGION)-b
 DEPLOY_GCP_PROJECT ?= lockboot
 DEPLOY_ENV := -e AWS_REGION=$(DEPLOY_AWS_REGION) -e AWS_DEFAULT_REGION=$(DEPLOY_AWS_REGION) \
               -e CLOUDSDK_COMPUTE_REGION=$(DEPLOY_GCP_REGION) -e CLOUDSDK_COMPUTE_ZONE=$(DEPLOY_GCP_ZONE) \
