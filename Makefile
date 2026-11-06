@@ -141,9 +141,13 @@ DEPLOY_GCP_REGION  ?= asia-southeast1
 # -b: t2a (aarch64) is not offered in asia-southeast1-a; n2d SEV-SNP is in a/b/c.
 DEPLOY_GCP_ZONE    ?= $(DEPLOY_GCP_REGION)-b
 DEPLOY_GCP_PROJECT ?= lockboot
+# AWS sign-in is as IAM user `lockboot` (tools/deploy/aws-iam.sh), which then assumes this role for
+# all AWS calls. Set it empty to use the signed-in identity directly (root/admin, e.g. to run
+# aws-iam.sh: root cannot assume roles): make deploy-shell LOGIN=aws DEPLOY_AWS_ROLE=
+DEPLOY_AWS_ROLE    ?= arn:aws:iam::182712153326:role/lockboot-deploy
 DEPLOY_ENV := -e AWS_REGION=$(DEPLOY_AWS_REGION) -e AWS_DEFAULT_REGION=$(DEPLOY_AWS_REGION) \
               -e CLOUDSDK_COMPUTE_REGION=$(DEPLOY_GCP_REGION) -e CLOUDSDK_COMPUTE_ZONE=$(DEPLOY_GCP_ZONE) \
-              -e CLOUDSDK_CORE_PROJECT=$(DEPLOY_GCP_PROJECT)
+              -e CLOUDSDK_CORE_PROJECT=$(DEPLOY_GCP_PROJECT) -e DEPLOY_AWS_ROLE=$(DEPLOY_AWS_ROLE)
 # docker-in-devcontainer: the host daemon needs the HOST path of the /src bind (as build.mk does).
 DEPLOY_HOST_WS := $(CURDIR)
 ifneq ($(filter /src /src/%,$(CURDIR)),)

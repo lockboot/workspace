@@ -9,6 +9,7 @@
 #   SignInLocalDevelopmentAccess policy). Profile `login` holds the session; `default` exposes it via
 #   credential_process so the CLI, coldsnap, and the publish scripts all pick it up with no
 #   AWS_PROFILE. Exit: `aws logout --all` (deletes the cache; issued STS creds just expire).
+#   With DEPLOY_AWS_ROLE set (Makefile default), `default` is that role assumed from the session.
 # GCP: `gcloud auth login --no-launch-browser`. Exit: `gcloud auth revoke --all` (revokes the
 #   refresh token server-side -- it does not expire on its own without Cloud Identity session control).
 set -uo pipefail
@@ -39,13 +40,32 @@ trap 'exit 130' INT TERM HUP
 
 if [ "$want_aws" = 1 ]; then
   mkdir -p "$HOME/.aws"
+  # DEPLOY_AWS_ROLE set: `default` = that role, assumed from the login session (role creds are
+  # cached + refreshed by the CLI). Empty: `default` = the login session itself (root/admin use).
+  # The role hop goes via a credential_process profile so it does not depend on source_profile
+  # understanding `aws login` sessions directly.
+  if [ -n "${DEPLOY_AWS_ROLE:-}" ]; then
+    default_from=deploy
+    role_profiles="
+[profile login-creds]
+credential_process = aws configure export-credentials --profile login --format process
+
+[profile deploy]
+region = ${AWS_REGION}
+role_arn = ${DEPLOY_AWS_ROLE}
+role_session_name = lockboot-deploy
+source_profile = login-creds
+"
+  else
+    default_from=login role_profiles=""
+  fi
   cat > "$HOME/.aws/config" <<EOF
 [profile login]
 region = ${AWS_REGION}
-
+${role_profiles}
 [default]
 region = ${AWS_REGION}
-credential_process = aws configure export-credentials --profile login --format process
+credential_process = aws configure export-credentials --profile ${default_from} --format process
 EOF
   echo ">> deploy: AWS sign-in (open the URL in a browser, paste the code back)"
   aws login --remote --profile login || exit 1
