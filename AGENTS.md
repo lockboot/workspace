@@ -61,6 +61,10 @@ Out of scope -- do not fold into the chain or org overviews: **os402** (dormant 
   `ci build-x86_64 build-aarch64` (stage0/1/2), `ci` (vaportpm), none (.github / workspace). `sync`
   also deletes any legacy differently-named ruleset. `make check-rulesets` catches drift and is the
   source of truth for branch protection -- change the policy in the script, not the GitHub UI.
+- Release repos (stage0, stage1, stage2, vaportpm; release tags are plain `v*` everywhere) also get,
+  from the same script: a **`lockboot-release-tags`** tag ruleset (only admins create release tags;
+  none can be moved or deleted) and **immutable releases** (published assets + tag are locked; a bad
+  release is deprecated via notes/flags or deleted -- its tag name is never reusable -- not edited).
 
 ## Git & PR workflow
 
@@ -70,6 +74,9 @@ Out of scope -- do not fold into the chain or org overviews: **os402** (dormant 
 - **Commit messages and PR bodies are plain ASCII** -- no em dashes or smart punctuation; use `-`,
   `--`, `->`, straight quotes. (`git log -1 --format=%B | grep -nP '[^\x00-\x7F]'` should print nothing.)
 - **Open PRs as draft** (`gh pr create --draft`); the author marks them ready.
+- **One PR per repo per changeset.** Follow-up work for the same changeset is a new commit on the
+  open PR's branch, never a sibling PR. A cross-repo changeset is one branch per repo, tested
+  together (both arches) before any of it merges -- main only receives sets that work as a whole.
 - **Merge with a merge commit** (`gh pr merge <n> --merge --delete-branch`), not squash (squash is
   disabled; the ruleset allows merge commits on every repo, workspace included).
 - **After a merge, `git checkout main && git pull --ff-only` before new work** -- never keep committing
