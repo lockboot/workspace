@@ -103,3 +103,28 @@ Bump stage1's UKI kernel + systemd-boot stub with `make update-fedora-deps FCOS=
 path serves **unsigned** RPMs; the tooling uses `data/signed/` and GPG-verifies against the per-release
 key in `tools/build-uki/keys/` (the trust anchor -- commit and fingerprint-verify a new `fNN` key
 before bumping the Fedora major).
+
+## Cloud test runs
+
+- One VM at a time; ask before each launch, naming the config, the cap and the question it
+  answers. Never batch launches. A launch the auto-mode classifier blocks is not retried another
+  way: hand the user the command to run.
+- Spot, `--max-run-duration=5m` (a stage0 probe boot takes ~2.5 min including the payload's
+  60 s hold).
+- Create and follow in ONE `make deploy-exec` command (`gcloud compute instances create ... &&
+  get-console.sh <vm> <zone> --follow`): GCP serves no serial output once the instance stops,
+  and a guest power-off leaves it TERMINATED within seconds.
+- Keep the test payload's 60 s flush hold in the cloud (no `--nosleep`); it is what gives the
+  follower time to attach.
+- Anything that powers off quickly (the full chain: `pcr-dump` exits at once) also needs
+  instance metadata `serial-port-logging-enable=true`, read back after the stop with
+  `gcloud logging read 'resource.type=gce_instance AND logName=projects/<p>/logs/serialconsole.googleapis.com%2Fserial_port_1_output AND labels."compute.googleapis.com/resource_name"=<vm>' --order=asc --format='value(textPayload)'`.
+  Entries split long lines: concatenate them, then split on the literal `\r\n`. gcloud takes a
+  single `--metadata`, so add the key to the existing list. Filter by
+  `resource.labels.instance_id` (read the id before deleting), not the name: a reused VM name
+  pulls in earlier runs' logs.
+- GCP full-chain runs (stage1 onward) need a Confidential VM (SEV / SEV-SNP): stage1 attests
+  before running stage2, and GCE provisions AK certificates only on Confidential VMs. Plain
+  Shielded VMs are for stage0 probes only.
+- Delete the instance as soon as the follower reports it stopped, as its own announced step.
+  Record every created resource in the run's `cloudtest/<run>/teardown.txt`.
