@@ -102,6 +102,21 @@ Derivations are single-key objects, nested:
 | `{"efi_signature_list": {"type", "owner", "data"}}` | One `EFI_SIGNATURE_LIST` with one entry. `type` is `x509`, `sha256` or a GUID. |
 | `{"cpio_newc": [{"ino", "mode", "name", "data"?}, …]}` | newc entries, with uid/gid 0, nlink 1 and mtime 0. Each entry's mode is an octal string with the type bits. No trailer: writers differ, so spell it out with `utf8`/`hex`. |
 
+## Open: GPT digest from the attestation
+
+stage0's `EV_EFI_GPT_EVENT` derives from `boot.disk`, which only holds on a first boot: stage2
+rewrites the GPT (adds its partitions), so later boots measure a GPT no release artifact
+describes. Reconstructing it is brittle and not planned. Instead the attestation will carry that
+event's digest as auxiliary data (lockboot/vaportpm#12, with a matching change in vaportpm-zk),
+and the replay takes it from there, which pins PCR5 (non-TDX) and PCR2 (TDX) on every boot. The
+quote binds the supplied digest: a wrong one fails the PCR comparison.
+
+Undecided: how a replay file says "this event's digest comes from the attestation's aux data".
+Something like `"supplied": "gpt"` on the event (a new status besides verified / derived /
+pinned / unchecked, reported as such), with the value read from `--check`'s attestation JSON or
+given per bank on the command line, falling back to the `boot.disk` derivation when absent.
+Inputs today are 32-byte sha256 values only, so an aux digest needs a per-bank value.
+
 ## Producers
 
 - **stage0** (`tools/predict-pcrs.py`, `stage0.replay.json` in each release, with its
