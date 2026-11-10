@@ -34,6 +34,7 @@ vTPM, integrity monitoring), gVNIC, our PK/KEK/db/dbx.
 | `2026-11-09-n2d-standard-2-sev.log` | n2d-standard-2 | SEV | stage0-689e96b8b206 | `a0b5ff33` | `2c4b6392` | `3d458cfe` | 27 |
 | `2026-11-09-n2d-standard-2-sev-snp.log` | n2d-standard-2 | SEV-SNP (AMD Milan) | stage0-689e96b8b206 | `50597a27` | `2c4b6392` | `3d458cfe` | 27 |
 | `2026-11-09-c3-standard-4-shielded.log` | c3-standard-4 | none | stage0-689e96b8b206 | `d0c70a93` | `1e0e29fc` | `3d458cfe` | 27 |
+| `2026-11-09-c3-standard-4-tdx.log` | c3-standard-4 | TDX | stage0-9437a5b63f47 (LAPIC tick + direct doorbells) | `0cca9ec1` | `baef2b3d` | `9d50b267` | 27 |
 | `2026-11-09-t2a-standard-1-shielded-FAILED.log` | t2a-standard-1 | none | stage0-70b2df077e08 | - | - | - | - |
 
 t2a: stage0's gVNIC driver probes fine (link up, SNP installed), but GCP's Arm firmware ("built
@@ -76,6 +77,33 @@ From `2026-11-09-n2d-standard-2-shielded.log`:
   the vTPM PCRs do not bind the firmware. These URLs identify it, but as unextended events they
   are claims, not measurements. For SNP the binding is the launch measurement + Google's
   endorsement (gce-tcb-verifier).
+
+## TDX measures differently (verifier work item, high priority)
+
+`2026-11-09-c3-standard-4-tdx.log` is the first TDX boot that reached a payload (it needed stage0's
+LAPIC tick and direct gVNIC doorbells; see stage0 `lapic_tick.rs`, `crates/gvnic`). Its firmware
+is the same binary as c3 Shielded (SP800-155 locator `624ac419...`), yet it places boot-phase
+measurements in different PCRs:
+
+| Event | c3 / n2d Shielded, SEV, SNP | c3 TDX |
+|---|---|---|
+| NonHostInfo technology byte (PCR0) | 0 none, 1 SEV, 4 SEV-SNP | **3** |
+| `EV_EFI_GPT_EVENT` (boot disk GPT) | PCR5 | **PCR2** |
+| `EV_EFI_BOOT_SERVICES_APPLICATION` (stage0's BOOTX64.EFI, Authenticode) | PCR4 | **PCR2** |
+| "Calling EFI Application from Boot Option", separators | PCR4, PCR0-7 | PCR4, PCR0-7 (unchanged) |
+| PCR7 (SecureBoot, PK, KEK, db, dbx, separator, db authority) | PCR7 | PCR7 (unchanged) |
+
+So on TDX, PCR4 is only the BDS action + separator and PCR5 only its separator; stage0's identity
+and the GPT land in PCR2, after its separator. This looks like the TDX measurement path logging by
+CC measurement register rather than by PCR (TCG CC mapping: PCR2-6 all map to RTMR1, "MR index
+2"), reflected into the vTPM as PCR2. Consequences, to encode in the verifier / replay format:
+
+- stage0.replay.json (PCR4 Authenticode, PCR5 GPT) does not compose with a TDX platform file as is:
+  the same events must be replayable into PCR2 (after the firmware's PCR2 separator) on TDX.
+- Anything binding stage0's identity via PCR4 (sealing policy, attestation policy) needs a TDX
+  case: there it is PCR2, which also carries the GPT.
+- from-capture.py refuses this capture (GPT / BS_APPLICATION events in PCR2), deliberately: no
+  TDX platform file until the format can express the remap.
 
 ## Expected (from the 2026-11-05 matrix, before captures were kept)
 

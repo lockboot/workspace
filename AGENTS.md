@@ -109,8 +109,8 @@ before bumping the Fedora major).
 - One VM at a time; ask before each launch, naming the config, the cap and the question it
   answers. Never batch launches. A launch the auto-mode classifier blocks is not retried another
   way: hand the user the command to run.
-- Spot, `--max-run-duration=5m` (a stage0 probe boot takes ~2.5 min including the payload's
-  60 s hold).
+- Spot, `--max-run-duration=3m` (a stage0 probe boot takes ~2.5 min including the payload's
+  60 s hold; a full chain about 30 s; 3 min still shows ~8 boots of a reset loop). 5m at most.
 - Create and follow in ONE `make deploy-exec` command (`gcloud compute instances create ... &&
   get-console.sh <vm> <zone> --follow`): GCP serves no serial output once the instance stops,
   and a guest power-off leaves it TERMINATED within seconds.
