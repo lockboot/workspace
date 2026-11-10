@@ -11,7 +11,8 @@
 # evaluated is recomputed and must equal the digests the file embeds; events that cannot be
 # re-derived (pinned, or their artifact was not supplied) are carried at face value and reported
 # as such. A PCR is only reproduced if some file models it from reset and every later file
-# accounts for it.
+# accounts for it. A file's "route" rules move matching events of the files after it into another
+# PCR (a platform whose firmware logs an event type elsewhere, e.g. GCE TDX); each move is reported.
 #
 # This compares PCR values; it does not verify the quote's signature or nonce (vaportpm-verify).
 from __future__ import annotations
@@ -129,6 +130,11 @@ class Event(TypedDict):
     value: NotRequired[dict[str, str]]    # instead of an extend: the PCR's pinned value here
 
 
+# A platform's firmware logging an event type into a different PCR than the boot chain's files
+# describe: matching events of every later file are replayed into "to" instead.
+Route = TypedDict("Route", {"type": str, "from": int, "to": int, "about": NotRequired[str]})
+
+
 class ArtifactDecl(TypedDict):
     sha256: str
     file: NotRequired[str]
@@ -150,6 +156,7 @@ class ReplayDoc(TypedDict):
     reset: NotRequired[list[int]]   # PCRs this file models from their reset value
     unextended: NotRequired[list[int]]  # PCRs this file does not extend
     unpredictable: NotRequired[dict[str, str]]  # PCRs extended in ways no file can replay -> why
+    route: NotRequired[list[Route]]  # moves later files' events of a type from one PCR to another
     events: list[Event]
 
 
@@ -273,6 +280,7 @@ class ReplayFile:
     reset: set[int]
     unextended: set[int]
     unpredictable: dict[int, str]
+    routes: list[Route]
     extends: set[int] = field(default_factory=set)
 
     @classmethod
@@ -285,14 +293,54 @@ class ReplayFile:
                  artifacts=d.get("artifacts", {}), inputs=d.get("inputs", {}),
                  entry=d.get("entry"), events=d["events"],
                  reset=set(d.get("reset", [])), unextended=set(d.get("unextended", [])),
-                 unpredictable={int(k): v for k, v in d.get("unpredictable", {}).items()})
+                 unpredictable={int(k): v for k, v in d.get("unpredictable", {}).items()},
+                 routes=d.get("route", []))
         rf.extends = {e["pcr"] for e in rf.events}
         if rf.entry is not None and rf.entry not in rf.artifacts:
             raise Bad(f"{path}: entry {rf.entry!r} is not a declared artifact")
-        clash = (rf.reset | rf.extends) & (rf.unextended | set(rf.unpredictable))
-        if clash:
-            raise Bad(f"{path}: PCR(s) {sorted(clash)} both extended and declared unextended/unpredictable")
+        for r in rf.routes:
+            if not (isinstance(r.get("type"), str) and all(isinstance(r.get(k), int) and 0 <= r[k] < NPCR
+                                                           for k in ("from", "to")) and r["from"] != r["to"]):
+                raise Bad(f"{path}: bad route {r!r}")
+        rf.check_accounting()
         return rf
+
+    def check_accounting(self) -> None:
+        clash = (self.reset | self.extends) & (self.unextended | set(self.unpredictable))
+        if clash:
+            raise Bad(f"{self.path}: PCR(s) {sorted(clash)} both extended and declared unextended/unpredictable")
+
+
+def apply_routes(files: list[ReplayFile]) -> list[str]:
+    """Move each later file's events that a route matches (same type, same PCR) to the route's PCR,
+    in place. Firmware that logs an event type elsewhere does so for the rest of the boot, so a
+    route covers every file after the one declaring it. A PCR an event is routed into counts as
+    extended by that file; one left with no events counts as unextended."""
+    active: dict[tuple[str, int], tuple[int, str]] = {}    # (type, from) -> (to, declaring file)
+    used: set[tuple[str, int]] = set()
+    notes: list[str] = []
+    for f in files:
+        before = set(f.extends)
+        for n, ev in enumerate(f.events):
+            k = (ev.get("type", ""), ev["pcr"])
+            if k not in active or "value" in ev:
+                continue
+            to, by = active[k]
+            notes.append(f"{f.label} #{n} {k[0]} PCR{k[1]} -> PCR{to} (route of {by})")
+            f.events[n] = {**ev, "pcr": to}
+            used.add(k)
+        f.extends = {e["pcr"] for e in f.events}
+        if f.extends != before:
+            f.unextended = (f.unextended - f.extends) | (before - f.extends)
+            f.check_accounting()
+        for r in f.routes:
+            k = (r["type"], r["from"])
+            if k in active:
+                raise Bad(f"{f.label}: route {k[0]} PCR{k[1]} already declared by {active[k][1]}")
+            active[k] = (r["to"], f.label)
+    notes += [f"{by}: route {t} PCR{p} -> PCR{to} matched no event"
+              for (t, p), (to, by) in active.items() if (t, p) not in used]
+    return notes
 
 
 class Ctx:
@@ -610,6 +658,8 @@ def main() -> None:
         labels = [f.label for f in files]
         if len(set(labels)) != len(labels):
             raise Bad(f"replay files share a name: {labels}")
+        for note in apply_routes(files):
+            print(f"routed: {note}", file=sys.stderr)
         inputs, notes = bind_inputs(files, given)
         for note in notes:
             print(f"bound: {note}", file=sys.stderr)

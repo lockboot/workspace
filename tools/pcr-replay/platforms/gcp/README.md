@@ -15,10 +15,10 @@ pcr-replay.py platforms/gcp/gcp-n2d-standard-2-sev-snp.replay.json stage0.replay
 | `gcp-n2d-standard-2-sev.replay.json` | `a0b5ff33` | `2c4b6392` | full chain, 2026-11-09 |
 | `gcp-n2d-standard-2-sev-snp.replay.json` | `50597a27` | `2c4b6392` | full chain, 2026-11-09 |
 | `gcp-c3-standard-4-shielded.replay.json` | `d0c70a93` | `1e0e29fc` | stage0 only |
+| `gcp-c3-standard-4-tdx.replay.json` | `0cca9ec1` | `baef2b3d` | full chain, 2026-11-10 (with `route`, below) |
 
 Each file re-derives every PCR0-2 event from its logged bytes except the three ACPI DATA events,
-which are pinned (their digests cover ACPI tables the log does not contain). Not covered: TDX
-(c3 networking under TDX is broken), t2a / Arm (no network stack in the firmware, below), other
+which are pinned (their digests cover ACPI tables the log does not contain). Not covered: t2a / Arm (no network stack in the firmware, below), other
 machine sizes (the ACPI tables may differ; unprobed).
 
 ## Captures (`captures/`)
@@ -78,7 +78,7 @@ From `2026-11-09-n2d-standard-2-shielded.log`:
   are claims, not measurements. For SNP the binding is the launch measurement + Google's
   endorsement (gce-tcb-verifier).
 
-## TDX measures differently (verifier work item, high priority)
+## TDX measures differently
 
 `2026-11-09-c3-standard-4-tdx.log` is the first TDX boot that reached a payload (it needed stage0's
 LAPIC tick and direct gVNIC doorbells; see stage0 `lapic_tick.rs`, `crates/gvnic`). Its firmware
@@ -96,14 +96,21 @@ measurements in different PCRs:
 So on TDX, PCR4 is only the BDS action + separator and PCR5 only its separator; stage0's identity
 and the GPT land in PCR2, after its separator. This looks like the TDX measurement path logging by
 CC measurement register rather than by PCR (TCG CC mapping: PCR2-6 all map to RTMR1, "MR index
-2"), reflected into the vTPM as PCR2. Consequences, to encode in the verifier / replay format:
+2"), reflected into the vTPM as PCR2.
 
-- stage0.replay.json (PCR4 Authenticode, PCR5 GPT) does not compose with a TDX platform file as is:
-  the same events must be replayable into PCR2 (after the firmware's PCR2 separator) on TDX.
+`gcp-c3-standard-4-tdx.replay.json` expresses this as two `route` rules (`EV_EFI_GPT_EVENT` 5 -> 2,
+`EV_EFI_BOOT_SERVICES_APPLICATION` 4 -> 2), which from-capture.py writes when a capture shows a
+boot-chain event type in PCR0-2 after the separator and never in its usual PCR. stage0's replay
+file is unchanged apart from listing its events in log order (GPT before BOOTX64.EFI), which is
+the order they reach PCR2. Verified against the TDX full-chain regression boot (2026-11-10:
+stage0, stage1, stage2, every PCR but IMA's PCR10, sha256 and sha384).
+
 - Anything binding stage0's identity via PCR4 (sealing policy, attestation policy) needs a TDX
   case: there it is PCR2, which also carries the GPT.
-- from-capture.py refuses this capture (GPT / BS_APPLICATION events in PCR2), deliberately: no
-  TDX platform file until the format can express the remap.
+- The GPT is a free variable after the first boot (stage2 adds its partitions), so elsewhere PCR5
+  is left unpinned. On TDX that free variable is PCR2, and stage0's Authenticode goes with it:
+  past the first boot, PCR2 pins neither, and stage0 is bound only by PCR7 (signed by our db).
+  The replay reproduces first boots only (the GPT of `boot.disk`).
 
 ## Expected (from the 2026-11-05 matrix, before captures were kept)
 

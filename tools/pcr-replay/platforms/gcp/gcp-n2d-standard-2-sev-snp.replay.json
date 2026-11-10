@@ -50,7 +50,7 @@
       "pcr": 0,
       "by": "GCE firmware",
       "type": "EV_NONHOST_INFO",
-      "about": "confidential-computing technology byte 4 (0 none, 1 SEV, 4 SEV-SNP observed)",
+      "about": "confidential-computing technology byte 4 (0 none, 1 SEV, 3 TDX, 4 SEV-SNP observed)",
       "derive": {
         "concat": [
           {

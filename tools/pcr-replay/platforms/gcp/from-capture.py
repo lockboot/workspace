@@ -7,6 +7,10 @@ Every PCR0-2 event becomes a derivation from its logged bytes, so pcr-replay re-
 the ACPI DATA events, whose digests cover ACPI tables that are not in the log: those are pinned.
 An event type not handled below is refused, not guessed at.
 
+Events in PCR0-2 after that PCR's separator are the boot chain's, not the platform's. Where the
+firmware logged one of the boot chain's event types (ROUTABLE) there instead of its usual PCR, as
+GCE TDX does, the file gets a route rule for it, provided the capture shows that type only there.
+
 usage: from-capture.py CAPTURE --name NAME --out FILE.replay.json
 """
 from __future__ import annotations
@@ -26,7 +30,12 @@ EV_S_CRTM_VERSION = 0x8
 EV_PLATFORM_CONFIG_FLAGS = 0xA
 EV_NONHOST_INFO = 0x11
 EV_EFI_VARIABLE_BOOT = 0x80000002
+EV_EFI_BOOT_SERVICES_APPLICATION = 0x80000003
+EV_EFI_GPT_EVENT = 0x80000006
 NONHOST_PREFIX = b"GCE NonHostInfo\0"
+# Boot-chain event types a platform may log elsewhere: type -> (name, the PCR stage0's file uses).
+ROUTABLE = {EV_EFI_GPT_EVENT: ("EV_EFI_GPT_EVENT", 5),
+            EV_EFI_BOOT_SERVICES_APPLICATION: ("EV_EFI_BOOT_SERVICES_APPLICATION", 4)}
 
 
 def parse(txt: str) -> tuple[list[dict[str, Any]], dict[tuple[str, int], str]]:
@@ -105,7 +114,7 @@ def platform_event(e: dict[str, Any]) -> dict[str, Any]:
             raise SystemExit(f"unexpected EV_NONHOST_INFO {d.hex()}")
         tech = d[len(NONHOST_PREFIX):]
         ev |= {"type": "EV_NONHOST_INFO",
-               "about": f"confidential-computing technology byte {tech[0]} (0 none, 1 SEV, 4 SEV-SNP observed)",
+               "about": f"confidential-computing technology byte {tech[0]} (0 none, 1 SEV, 3 TDX, 4 SEV-SNP observed)",
                "derive": {"concat": [{"utf8": "GCE NonHostInfo", "nul": True}, {"hex": tech.hex()}]}}
     elif t == EV_PLATFORM_CONFIG_FLAGS and d == b"ACPI DATA":
         ev |= {"type": "EV_PLATFORM_CONFIG_FLAGS",
@@ -131,6 +140,31 @@ def firmware_rim(evs: list[dict[str, Any]]) -> str | None:
     return None
 
 
+def split(evs: list[dict[str, Any]], capture: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """The platform's PCR0-2 events (up to each one's separator), and route rules for the boot
+    chain's events the firmware logged into PCR0-2 after it."""
+    platform: list[dict[str, Any]] = []
+    routes: dict[tuple[int, int], dict[str, Any]] = {}
+    sealed: set[int] = set()
+    for e in evs:
+        p, t = e["pcr"], e["type"]
+        if p not in PLATFORM_PCRS or t == EV_NO_ACTION:
+            continue
+        if p not in sealed:
+            platform.append(e)
+            sealed |= {p} if t == EV_SEPARATOR else set()
+            continue
+        if t not in ROUTABLE:
+            raise SystemExit(f"unhandled PCR{p} event type {t:#x} after its separator")
+        name, usual = ROUTABLE[t]
+        if any(x["type"] == t and x["pcr"] == usual for x in evs):
+            raise SystemExit(f"{name} logged into both PCR{usual} and PCR{p}: not a route")
+        routes[(t, p)] = {"type": name, "from": usual, "to": p,
+                          "about": f"this firmware logs {name} into PCR{p}, not PCR{usual} "
+                                   f"(captures/{capture})"}
+    return platform, list(routes.values())
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Write a GCE platform replay file from a probe capture")
     ap.add_argument("capture")
@@ -139,24 +173,28 @@ def main() -> None:
     a = ap.parse_args()
     with open(a.capture, "rb") as f:
         evs, pcrs = parse(f.read().decode("latin1").replace("\r", ""))
-    events = [platform_event(e) for e in evs if e["pcr"] in PLATFORM_PCRS and e["type"] != EV_NO_ACTION]
+    capture = a.capture.rsplit("/", 1)[-1]
+    platform, routes = split(evs, capture)
+    events = [platform_event(e) for e in platform]
     rim = firmware_rim(evs)
-    doc = {
+    doc: dict[str, Any] = {
         "schema": "pcr-replay/v1",
         "name": a.name,
         "about": "GCE firmware, from reset to the separators in PCR0-2 (written by from-capture.py from "
-                 f"captures/{a.capture.rsplit('/', 1)[-1]}). PCR0 does not measure the firmware binary: "
+                 f"captures/{capture}). PCR0 does not measure the firmware binary: "
                  "firmware integrity comes from the SEV-SNP/TDX launch measurement plus Google's "
                  "endorsement, not from these PCRs. The log names the firmware it ran (an unextended "
                  f"SP800-155 event, a claim rather than a measurement): {rim or 'none'}.",
         "reset": list(PLATFORM_PCRS),
         "unextended": [p for p in range(24) if p not in PLATFORM_PCRS],
-        "events": events,
     }
+    if routes:
+        doc["route"] = routes
+    doc["events"] = events
     with open(a.out, "w") as f:
         json.dump(doc, f, indent=2)
         f.write("\n")
-    print(f"{a.out}: {len(events)} events, "
+    print(f"{a.out}: {len(events)} events, {len(routes)} routes, "
           + ", ".join(f"PCR{p} sha256 {pcrs.get(('sha256', p), '?')[:8]}" for p in PLATFORM_PCRS))
 
 

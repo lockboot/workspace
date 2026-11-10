@@ -33,7 +33,12 @@ pcr-replay.py gcp-n2d.replay.json stage0.replay.json stage1.replay.json stage2.r
   stage you know, and the stage you don't know starts from there.
 
 Artifacts are matched by sha256, never by name. Files are applied in the order given. Only the
-order of events within one PCR matters, but list a platform file first.
+order of events within one PCR matters, but list a platform file first: its `route` rules apply
+to the files after it. Producers list events in the order the firmware logs them, so a routed
+event lands in its new PCR in the right place.
+
+There is no platform detection. Which platform file heads the chain is the caller's choice, and
+a wrong choice fails closed (the PCRs differ).
 
 The tool compares PCR values. It does not verify the quote's signature, nonce or AK; that is the
 attestation verifier's job (vaportpm-verify). Pass `--check` the PCRs of an already-verified
@@ -65,6 +70,7 @@ quote.
 | `reset` | PCRs this file models from their reset value: nothing extended them before it. Reset is all-zero, all-ones for PCR17-22. |
 | `unextended` | PCRs this file does not extend. Every PCR must be accounted for (events, `unextended` or `unpredictable`) by every file after the one that modelled it from reset, or it stops being reproduced. |
 | `unpredictable` | PCRs extended from here in ways no file can replay, with the reason. |
+| `route` | `[{"type", "from", "to", "about"?}]`: this platform's firmware logs events of TCG type `type` into PCR `to` where the boot chain's files say `from`. Every later file's matching events are replayed into `to`; each move is reported. A PCR an event is routed into counts as extended by that file, and one left with no events as unextended. |
 | `events` | In extend order. |
 
 An event:
@@ -99,12 +105,12 @@ Derivations are single-key objects, nested:
 ## Producers
 
 - **stage0** (`tools/predict-pcrs.py`, `stage0.replay.json` in each release, with its
-  reference `pcrs.json`): firmware and stage0 from reset for PCR3-23. Its input `payload` is
-  PCR14.
+  reference `pcrs.json`): firmware and stage0 from reset for PCR3-23, in the firmware's log
+  order. Its input `payload` is PCR14.
 - **stage1** (`tools/predict-pcrs.py`, `stage1.replay.json` in each UKI release): systemd-stub
   (PCR11), the kernel's EFI stub (PCR9), ExitBootServices (PCR5). Its input `stage2` is PCR14.
 - **stage2** (`tools/stage2.replay.json`, static, in each release): input `config` into PCR15,
   sha256 bank, raw.
 - **platforms** (`platforms/`): provider firmware's PCR0-2, pinned where it cannot be re-derived.
-  GCE: `platforms/gcp/`, generated from probe captures kept alongside. EC2: not yet
+  GCE: `platforms/gcp/`, generated from probe captures kept alongside (TDX with `route`). EC2: not yet
   (`EC2-NOTES.md`).
