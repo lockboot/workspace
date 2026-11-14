@@ -29,7 +29,8 @@ REPOS := \
 	stage1=$(GITHUB_BASEURL)/stage1.git \
 	vaportpm=$(GITHUB_BASEURL)/vaportpm.git \
 	stage2=$(GITHUB_BASEURL)/stage2.git \
-	vaportpm-zk=$(GITHUB_BASEURL)/vaportpm-zk.git
+	vaportpm-zk=$(GITHUB_BASEURL)/vaportpm-zk.git \
+	DudeFS=$(GITHUB_BASEURL)/DudeFS.git
 
 # The canonical build Dockerfiles live in stage0 (the reference project; the copy
 # in stage1 is kept byte-identical). Build the shared "lockboot family" images
