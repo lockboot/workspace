@@ -17,6 +17,8 @@
 #   * repo admins may bypass (so a red/flaky CI can't lock you out entirely)
 #   * required status checks per repo (below). Convention: `ci` (fmt + clippy + test) and
 #     `build-x86_64` / `build-aarch64`. `.github` has no CI, so no checks.
+#   * merge settings, identical on every repo: merge commits allowed, squash disabled,
+#     rebase allowed, head branch deleted on merge.
 #
 # Release policy -- on repos that cut releases (those with a release-tag pattern below):
 #   * a second ruleset, lockboot-release-tags, on the repo's release tags: creation,
@@ -32,7 +34,7 @@ set -euo pipefail
 ORG=lockboot
 RULESET_NAME=lockboot-main
 TAG_RULESET_NAME=lockboot-release-tags
-REPOS=(stage0 stage1 stage2 vaportpm .github workspace)
+REPOS=(stage0 stage1 stage2 vaportpm .github workspace DudeFS)
 
 # GitHub repo name -> release-tag ref pattern (empty = the repo cuts no releases: no tag
 # ruleset, no immutable-releases setting). Every release repo uses plain `v*` (one product per
@@ -40,7 +42,7 @@ REPOS=(stage0 stage1 stage2 vaportpm .github workspace)
 release_tag_pattern() {
   case "$1" in
     stage0|stage1|stage2|vaportpm) echo "refs/tags/v*" ;;
-    .github|workspace)             echo "" ;;
+    .github|workspace|DudeFS)      echo "" ;;
     *) return 1 ;;
   esac
 }
@@ -50,10 +52,18 @@ required_checks() {
   case "$1" in
     stage0|stage1|stage2) echo "ci build-x86_64 build-aarch64" ;;
     vaportpm)             echo "ci" ;;
+    DudeFS)               echo "build" ;;   # its CI's single job
     .github|workspace)    echo "" ;;   # no CI workflows -> structural protection only
     *) return 1 ;;
   esac
 }
+
+# The merge settings every repo gets (the repo's own settings, not a ruleset).
+desired_settings() {
+  jq -n '{allow_merge_commit: true, allow_squash_merge: false,
+          allow_rebase_merge: true, delete_branch_on_merge: true}'
+}
+settings_salient() { jq -S '{allow_merge_commit, allow_squash_merge, allow_rebase_merge, delete_branch_on_merge}'; }
 
 for t in gh jq; do command -v "$t" >/dev/null || { echo "missing required tool: $t" >&2; exit 1; }; done
 
@@ -141,6 +151,8 @@ sync_one() {
   local repo=$1 payload pattern
   payload=$(desired "$repo") || return 1
   upsert_ruleset "$repo" "$RULESET_NAME" "$payload"
+  desired_settings | gh api -X PATCH "repos/$ORG/$repo" --input - >/dev/null
+  echo "  $repo: merge settings applied"
   pattern=$(release_tag_pattern "$repo")
   if [ -n "$pattern" ]; then
     upsert_ruleset "$repo" "$TAG_RULESET_NAME" "$(desired_tags "$repo")"
@@ -176,6 +188,9 @@ check_one() {
   pattern=$(release_tag_pattern "$repo")
   report=$(
     check_ruleset "$repo" "$RULESET_NAME" "$desired_json" || echo FAIL
+    want=$(desired_settings | settings_salient); got=$(gh api "repos/$ORG/$repo" | settings_salient)
+    [ "$want" = "$got" ] || { echo "      merge settings:"
+      diff <(printf '%s\n' "$want") <(printf '%s\n' "$got") | sed 's/^/        /'; echo FAIL; }
     legacy=$(gh api "repos/$ORG/$repo/rulesets" \
       --jq "[.[] | select(.name != \"$RULESET_NAME\" and .target == \"branch\").name] | join(\", \")" 2>/dev/null)
     [ -n "$legacy" ] && { echo "      legacy branch ruleset(s) to remove: $legacy"; echo FAIL; }

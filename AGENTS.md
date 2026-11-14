@@ -58,9 +58,11 @@ Out of scope -- do not fold into the chain or org overviews: **os402** (dormant 
 - One canonical branch ruleset, **`lockboot-main`**, is applied to every repo by **`tools/rulesets.sh`**
   (`make sync-rulesets` / `make check-rulesets`): PR required (0 approvals), no force-push, no branch
   deletion, **no linear history** (merge commits allowed), admin bypass; required checks =
-  `ci build-x86_64 build-aarch64` (stage0/1/2), `ci` (vaportpm), none (.github / workspace). `sync`
-  also deletes any legacy differently-named ruleset. `make check-rulesets` catches drift and is the
-  source of truth for branch protection -- change the policy in the script, not the GitHub UI.
+  `ci build-x86_64 build-aarch64` (stage0/1/2), `ci` (vaportpm), `build` (DudeFS), none (.github /
+  workspace). The same script sets each repo's merge settings: merge commits on, squash off, rebase
+  on, head branch deleted on merge. `sync` also deletes any legacy differently-named ruleset.
+  `make check-rulesets` catches drift and is the source of truth for branch protection and merge
+  settings -- change the policy in the script, not the GitHub UI.
 - Release repos (stage0, stage1, stage2, vaportpm; release tags are plain `v*` everywhere) also get,
   from the same script: a **`lockboot-release-tags`** tag ruleset (only admins create release tags;
   none can be moved or deleted) and **immutable releases** (published assets + tag are locked; a bad
@@ -78,7 +80,7 @@ Out of scope -- do not fold into the chain or org overviews: **os402** (dormant 
   open PR's branch, never a sibling PR. A cross-repo changeset is one branch per repo, tested
   together (both arches) before any of it merges -- main only receives sets that work as a whole.
 - **Merge with a merge commit** (`gh pr merge <n> --merge --delete-branch`), not squash (squash is
-  disabled; the ruleset allows merge commits on every repo, workspace included).
+  disabled and merge commits allowed on every governed repo, by `tools/rulesets.sh`).
 - **After a merge, `git checkout main && git pull --ff-only` before new work** -- never keep committing
   on a merged branch (its remote is deleted on merge, so new commits diverge and need re-branching).
 
