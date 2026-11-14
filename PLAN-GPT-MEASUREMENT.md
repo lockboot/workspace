@@ -1,6 +1,8 @@
 # Plan: the GPT measurement, the /data key, and the verifier
 
-Status: **draft for decision, parked 2026-11-10** (pondering; EC2 still blocked). Written so it
+Status: **decided 2026-11-14: section 3 (grow, then reboot; bind PCR5)**, implemented on stage2
+`grow-then-reboot` (QEMU selftest both arches; GCP pending). Section 4 done: lockboot/vaportpm#13,
+stage1#22, stage0#14, workspace#6 (verified on GCP c3 TDX). Was parked 2026-11-10. Written so it
 survives a context compaction: every fact, rejected option and open question from the
 2026-11-10 discussion is here. Tracker item: `WIP-RELEASE-TODO.md`, "TDX stage2 data key binds
 PCR2". Companion verifier issue: lockboot/vaportpm#12.
@@ -116,7 +118,10 @@ device, writes nothing, measures the final GPT, and derives the key from it.
 
 ### Open questions
 
-- **O1 reboot loop.** If the GPT write does not persist (read-only/misbehaving device, firmware
+- **O1 reboot loop -- settled 2026-11-14: the read-back guard is enough** (it drops the buffer
+  cache before re-reading). A firmware that rewrote the GPT would change what it measures, so the
+  key just follows it; it is the provisioning phase, needs no sealing, and a reboot is cheap.
+  Original question: If the GPT write does not persist (read-only/misbehaving device, firmware
   that "repairs" the table), every boot sees free space -> rewrite -> reboot, forever. The
   read-back guard (change 3) catches a write that didn't stick; it does not catch a firmware
   that rewrites the GPT on its next boot. Stronger bound wanted?
@@ -147,6 +152,10 @@ device, writes nothing, measures the final GPT, and derives the key from it.
 
 ### Rejected
 
+- **Bind stage0's identity via PCR7 and exclude PCR2 (2026-11-14):** stage0's PK/KEK/db are minted
+  per build and the private keys discarded, so PCR7 would identify one build -- but only as long as
+  that key really was destroyed, which nobody can demonstrate. PCR7 stays bound as before; PCR2
+  stays bound for stage0's measured identity.
 - **Exclude PCR2 on TDX** (from the data key or the verifier): loses stage0's identity.
 - **Accept the one-time loss** (document "reboot once before relying on /data"): no.
 - **Final layout at image build:** the GPT header's LastUsableLBA/AlternateLBA depend on the
