@@ -25,6 +25,9 @@ pcr-replay.py gcp-n2d.replay.json stage0.replay.json stage1.replay.json stage2.r
     was used unverified.
   - **pinned**: the file gives a digest or value without any derivation (platform firmware,
     say). The replay is only as good as that file's provenance.
+  - **supplied**: the digest came from the attestation (`from_attestation`, below). It is not
+    covered by the quote on its own; the PCR it is replayed into is, so a wrong value fails the
+    comparison. Reported with whether it equals the file's own derivation.
 - A derivation that disagrees with its embedded digest is an error (exit 2), whatever the quote
   says. A PCR that differs from the quote fails the check (exit 1).
 - A PCR is reported **not reproduced** when no file models it from reset, when a later file does
@@ -84,6 +87,7 @@ An event:
 | `banks` | Only extended in these banks; other banks are unaffected. |
 | `digests` | `{bank: hex}` as the producer computed them. |
 | `value` | Instead of an extend: `{bank: hex}`, the PCR's value at this point (pinned). Only before any event in that PCR. |
+| `from_attestation` | `"gpt"`: when `--check` is a vaportpm attestation (or vaportpm-verify output) carrying `gpt` `{bank: hex}`, the event's digest in each bank is that value, whatever the derivation gives; the derivation and `digests` are still checked against each other. Without one, the event replays as if the field were absent. |
 
 Derivations are single-key objects, nested:
 
@@ -102,20 +106,14 @@ Derivations are single-key objects, nested:
 | `{"efi_signature_list": {"type", "owner", "data"}}` | One `EFI_SIGNATURE_LIST` with one entry. `type` is `x509`, `sha256` or a GUID. |
 | `{"cpio_newc": [{"ino", "mode", "name", "data"?}, …]}` | newc entries, with uid/gid 0, nlink 1 and mtime 0. Each entry's mode is an octal string with the type bits. No trailer: writers differ, so spell it out with `utf8`/`hex`. |
 
-## Open: GPT digest from the attestation
+## The GPT digest from the attestation
 
 stage0's `EV_EFI_GPT_EVENT` derives from `boot.disk`, which only holds on a first boot: stage2
 rewrites the GPT (adds its partitions), so later boots measure a GPT no release artifact
-describes. Reconstructing it is brittle and not planned. Instead the attestation will carry that
-event's digest as auxiliary data (lockboot/vaportpm#12, with a matching change in vaportpm-zk),
-and the replay takes it from there, which pins PCR5 (non-TDX) and PCR2 (TDX) on every boot. The
-quote binds the supplied digest: a wrong one fails the PCR comparison.
-
-Undecided: how a replay file says "this event's digest comes from the attestation's aux data".
-Something like `"supplied": "gpt"` on the event (a new status besides verified / derived /
-pinned / unchecked, reported as such), with the value read from `--check`'s attestation JSON or
-given per bank on the command line, falling back to the `boot.disk` derivation when absent.
-Inputs today are 32-byte sha256 values only, so an aux digest needs a per-bank value.
+describes. The attestation carries the boot disk's `H(UEFI_GPT_DATA)` in each bank (`gpt`,
+read from the disk by the attesting stage, not from the firmware event log), and stage0's event
+is marked `"from_attestation": "gpt"`, so the replay pins PCR5 (non-TDX) and PCR2 (TDX) on every
+boot. The quote binds the supplied digest: a wrong one fails the PCR comparison.
 
 ## Producers
 
