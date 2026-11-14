@@ -58,9 +58,15 @@ Out of scope -- do not fold into the chain or org overviews: **os402** (dormant 
 - One canonical branch ruleset, **`lockboot-main`**, is applied to every repo by **`tools/rulesets.sh`**
   (`make sync-rulesets` / `make check-rulesets`): PR required (0 approvals), no force-push, no branch
   deletion, **no linear history** (merge commits allowed), admin bypass; required checks =
-  `ci build-x86_64 build-aarch64` (stage0/1/2), `ci` (vaportpm), none (.github / workspace). `sync`
-  also deletes any legacy differently-named ruleset. `make check-rulesets` catches drift and is the
-  source of truth for branch protection -- change the policy in the script, not the GitHub UI.
+  `ci build-x86_64 build-aarch64` (stage0/1/2), `ci` (vaportpm), `build` (DudeFS), none (.github /
+  workspace). The same script sets each repo's merge settings: merge commits on, squash off, rebase
+  on, head branch deleted on merge. `sync` also deletes any legacy differently-named ruleset.
+  `make check-rulesets` catches drift and is the source of truth for branch protection and merge
+  settings -- change the policy in the script, not the GitHub UI.
+- Release repos (stage0, stage1, stage2, vaportpm; release tags are plain `v*` everywhere) also get,
+  from the same script: a **`lockboot-release-tags`** tag ruleset (only admins create release tags;
+  none can be moved or deleted) and **immutable releases** (published assets + tag are locked; a bad
+  release is deprecated via notes/flags or deleted -- its tag name is never reusable -- not edited).
 
 ## Git & PR workflow
 
@@ -70,8 +76,11 @@ Out of scope -- do not fold into the chain or org overviews: **os402** (dormant 
 - **Commit messages and PR bodies are plain ASCII** -- no em dashes or smart punctuation; use `-`,
   `--`, `->`, straight quotes. (`git log -1 --format=%B | grep -nP '[^\x00-\x7F]'` should print nothing.)
 - **Open PRs as draft** (`gh pr create --draft`); the author marks them ready.
+- **One PR per repo per changeset.** Follow-up work for the same changeset is a new commit on the
+  open PR's branch, never a sibling PR. A cross-repo changeset is one branch per repo, tested
+  together (both arches) before any of it merges -- main only receives sets that work as a whole.
 - **Merge with a merge commit** (`gh pr merge <n> --merge --delete-branch`), not squash (squash is
-  disabled; the ruleset allows merge commits on every repo, workspace included).
+  disabled and merge commits allowed on every governed repo, by `tools/rulesets.sh`).
 - **After a merge, `git checkout main && git pull --ff-only` before new work** -- never keep committing
   on a merged branch (its remote is deleted on merge, so new commits diverge and need re-branching).
 
@@ -96,3 +105,28 @@ Bump stage1's UKI kernel + systemd-boot stub with `make update-fedora-deps FCOS=
 path serves **unsigned** RPMs; the tooling uses `data/signed/` and GPG-verifies against the per-release
 key in `tools/build-uki/keys/` (the trust anchor -- commit and fingerprint-verify a new `fNN` key
 before bumping the Fedora major).
+
+## Cloud test runs
+
+- One VM at a time; ask before each launch, naming the config, the cap and the question it
+  answers. Never batch launches. A launch the auto-mode classifier blocks is not retried another
+  way: hand the user the command to run.
+- Spot, `--max-run-duration=3m` (a stage0 probe boot takes ~2.5 min including the payload's
+  60 s hold; a full chain about 30 s; 3 min still shows ~8 boots of a reset loop). 5m at most.
+- Create and follow in ONE `make deploy-exec` command (`gcloud compute instances create ... &&
+  get-console.sh <vm> <zone> --follow`): GCP serves no serial output once the instance stops,
+  and a guest power-off leaves it TERMINATED within seconds.
+- Keep the test payload's 60 s flush hold in the cloud (no `--nosleep`); it is what gives the
+  follower time to attach.
+- Anything that powers off quickly (the full chain: `pcr-dump` exits at once) also needs
+  instance metadata `serial-port-logging-enable=true`, read back after the stop with
+  `gcloud logging read 'resource.type=gce_instance AND logName=projects/<p>/logs/serialconsole.googleapis.com%2Fserial_port_1_output AND labels."compute.googleapis.com/resource_name"=<vm>' --order=asc --format='value(textPayload)'`.
+  Entries split long lines: concatenate them, then split on the literal `\r\n`. gcloud takes a
+  single `--metadata`, so add the key to the existing list. Filter by
+  `resource.labels.instance_id` (read the id before deleting), not the name: a reused VM name
+  pulls in earlier runs' logs.
+- GCP full-chain runs (stage1 onward) need a Confidential VM (SEV / SEV-SNP): stage1 attests
+  before running stage2, and GCE provisions AK certificates only on Confidential VMs. Plain
+  Shielded VMs are for stage0 probes only.
+- Delete the instance as soon as the follower reports it stopped, as its own announced step.
+  Record every created resource in the run's `cloudtest/<run>/teardown.txt`.

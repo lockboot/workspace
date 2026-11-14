@@ -8,6 +8,7 @@
 /vaportpm/
 /vaportpm-zk/
 /wavebend.org/
+/DudeFS/
 /stage2/
 /notes/
 
@@ -54,3 +55,7 @@ CLAUDE.local.md
 .config
 .docker
 .wget-hsts
+.copilot
+
+# cloud test runs (tools/cloudtest): bundles, manifests, console logs
+/cloudtest/
