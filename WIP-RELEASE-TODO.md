@@ -211,6 +211,11 @@ Spot, asia-southeast1-b, probe payload, sha256 PCRs (first 16 hex). All stable a
 - [ ] (later, at the first tag) First tagged release: confirm attestation subject names (`gh attestation verify
       --format json`), that release-notes edits still work under immutability, and the new-ghcr-
       package push (org package-creation policy unknown).
+      2026-11-15, vaportpm (no ghcr package): v0.4.0 published EMPTY -- `draft: false` publishes
+      before the upload and an immutable release takes no uploads after. Fixed by draft-then-publish
+      (vaportpm#14; stage0#14, stage1#22, stage2#5). v0.4.1: 4 assets, immutable, each asset passes
+      `gh attestation verify`, byte-identical to a local build; notes edits work. The ghcr push
+      remains unconfirmed until a stage release.
 - [ ] (later, when it comes up) stage1 `release-docker` builds arm64 without `docker/setup-qemu-action` (the stage0 harness
       and stage2 erofs-builder jobs add it). Likely broken the same way; untested.
 

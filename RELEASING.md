@@ -14,6 +14,9 @@ Release repos: stage0, stage1, stage2, vaportpm. Release tags are plain `v*`.
 - **Releases are immutable** once published: assets and tag are locked, and GitHub signs a release
   attestation. Title, notes and the prerelease/latest flags stay editable. A bad release is
   deprecated in its notes (or deleted; its tag name can never be reused), never changed.
+- **The workflow creates the release as a draft with its assets, then publishes it** (`gh release
+  edit --draft=false`). A published release takes no uploads, so publishing first ships it empty
+  (vaportpm v0.4.0).
 - **Only a merged, tested changeset is tagged.** The tag goes on the merge commit on `main`, after
   every repo in the changeset has merged (see `AGENTS.md`, Git & PR workflow).
 
