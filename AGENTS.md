@@ -58,7 +58,7 @@ Out of scope -- do not fold into the chain or org overviews: **os402** (dormant 
 - One canonical branch ruleset, **`lockboot-main`**, is applied to every repo by **`tools/rulesets.sh`**
   (`make sync-rulesets` / `make check-rulesets`): PR required (0 approvals), no force-push, no branch
   deletion, **no linear history** (merge commits allowed), admin bypass; required checks =
-  `ci build-x86_64 build-aarch64` (stage0/1/2), `ci` (vaportpm), `build` (DudeFS), none (.github /
+  `ci build-x86_64 build-aarch64` (stage0/1/2, vaportpm), `build` (DudeFS), none (.github /
   workspace). The same script sets each repo's merge settings: merge commits on, squash off, rebase
   on, head branch deleted on merge. `sync` also deletes any legacy differently-named ruleset.
   `make check-rulesets` catches drift and is the source of truth for branch protection and merge

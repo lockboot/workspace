@@ -50,10 +50,9 @@ release_tag_pattern() {
 # GitHub repo name -> required check contexts (space-separated; empty = no CI gate).
 required_checks() {
   case "$1" in
-    stage0|stage1|stage2) echo "ci build-x86_64 build-aarch64" ;;
-    vaportpm)             echo "ci" ;;
-    DudeFS)               echo "build" ;;   # its CI's single job
-    .github|workspace)    echo "" ;;   # no CI workflows -> structural protection only
+    stage0|stage1|stage2|vaportpm) echo "ci build-x86_64 build-aarch64" ;;
+    DudeFS)                        echo "build" ;;   # its CI's single job
+    .github|workspace)             echo "" ;;   # no CI workflows -> structural protection only
     *) return 1 ;;
   esac
 }
