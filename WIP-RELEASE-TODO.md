@@ -32,42 +32,36 @@ Needs a decision / quick check:
       `lb-rb-*.console.log`. **n2d SEV-SNP: PASS** (boot 2 `data_reinit=false`, sentinel present,
       overlay root ephemeral). **c3 TDX: key moves once** -- boot 2 `data_reinit=true` (/data
       wiped, pivot-init redid boot 1), boot 3 PASS (next item).
-- [ ] **TDX stage2 data key binds PCR2, which now carries the GPT.** GCE TDX logs the GPT into
-      PCR2 (not PCR5), and PCR2 is in `DATA_KEY_PCRS` (stage2 tpm-derive). stage2 rewrites the GPT
-      on first boot, so the first reboot derives a different key and reinits `/data`; stable
-      after, until a disk grow. CONFIRMED 2026-11-10 (lb-rb-tdx: boots 1-2 reinit, boot 3 PASS):
-      data written on a TDX VM's first boot is lost at its first reboot. **Full plan:
-      `PLAN-GPT-MEASUREMENT.md`** (leading candidate: grow -> reboot before deriving the key,
-      bind PCR5 again, a volume grow wipes /data). **PARKED 2026-11-10**
-      until EC2 works (NitroTPM NV behaviour is an input). Options discussed, none ideal:
-      - Rejected: exclude PCR2 on TDX; accept the one-time loss; final layout at image build
-        (GPT header depends on disk size); a MAC under a GPT-independent PCR-derived key (a
-        foreign stage0 can mimic every PCR but PCR2).
-      - Option 3, predict the post-rewrite PCRs on the setup boot and bind the key to them.
-        Needs a carrier for the key across the state change; any carrier (ESP, disk, NV) is
-        adversarial input -- the attack is substitution (plant a key we then use), not reading.
-        a) Sealed blob + TPM creation record (CertifyCreation; creation PCRs checked against
-           our chain, GPT-holding PCR rebuilt from the verified live log). Needs on-disk state.
-        b) NV index holding K: authPolicy = OR(NV_Read + PolicyPCR(after), NV_Write +
-           PolicyPCR(before)), attrs exactly POLICYREAD|POLICYWRITE; reader checks
-           NV_ReadPublic attrs + authPolicy against its own computation, so only our full chain
-           (before state) can have written K. Grow carries K over (no re-encryption). Open:
-           where the pre-setup GPT digest lives, A/B indices for crash-safe grows, NV
-           persistence on GCE / NitroTPM. Undefine by empty owner auth = DoS -> reinit.
-      - Option 1 (last place): stage2 never rewrites the GPT (data region found by its own
-        header) -- stateless, handles grows. PCR2 cannot simply be excluded on TDX: it also carries
-      stage0's Authenticode.
+- [x] **TDX stage2 data key binds PCR2, which now carries the GPT.** RESOLVED 2026-11-14 (stage2#5):
+      `bootstrap` reboots after any GPT rewrite and derives the key only on a boot that wrote
+      nothing; PCR5 bound again (only PCR10 excluded); a volume grow reinitializes `/data`.
+      Read-back guard before the reboot (p3 must end at the last usable LBA, else fail closed).
+      Verified: QEMU selftest both arches; GCP n2d SEV-SNP and c3 TDX reboot test PASS, no reinit
+      after the provisioning reboot (cloudtest `cd177e5753e6`, `lb-gr-{snp,tdx}`). Rationale,
+      rejected options (exclude PCR2; bind stage0 through PCR7; key carriers) in
+      `stage2/PCR-BINDING.md`. Was: data written on a TDX VM's first boot was lost at its first
+      reboot (cloudtest `7cf12890de5f`, `lb-rb-tdx`).
+- [ ] **Firmware on a grown volume (untested).** After a PD / EBS resize the backup GPT is no
+      longer at the disk's end. Expect the firmware to measure the primary unchanged; if it
+      repairs or relocates the backup header, PCR5 / PCR2 move without stage2 writing anything.
+      Test on GCP: stop, grow the PD, start; confirm the GPT digest is unchanged before stage2
+      acts, then the grow + reboot + reinit.
+- [ ] **Nitro PCR5 (blocked on AWS).** NitroTPM's profile defines PCR5 as "Boot Manager Code
+      Configuration and Data and GPT". The data key now binds PCR5, so capture an EC2 event log
+      (`tools/pcr-replay/EC2-NOTES.md`) and confirm what else lands there before relying on it.
 - [ ] **PCR4 policy needs a TDX case:** anything binding stage0's identity via PCR4 (sealing,
       attestation policy) must use PCR2 on TDX.
 - [x] **stage1 `stage0-snippet.json`**: DROPPED (stage1 46d2bd0); `lockboot-deploy create` +
       docs produce the `_stage1` document.
 
 Follow-ups (filed / tracked):
-- [ ] **GPT event digest as attestation aux data** -- lockboot/vaportpm#12: vaportpm-attest reads
-      it from the event log, vaportpm-verify carries it (incl. the flat zkVM format), **matching
-      vaportpm-zk change** (commit it in `ZkPublicInputs`), pcr-replay takes an event's digest from
-      it (open design, workspace `tools/pcr-replay/README.md`). Then PCR2 and PCR5 pin on every
-      boot, TDX and non-TDX; until then replay reproduces them on first boots only.
+- [ ] **GPT digests in the attestation** -- lockboot/vaportpm#12 (open). DONE in vaportpm v0.4.1:
+      vaportpm-attest reads the boot disk's GPT (not the event log) and carries
+      `gpt: {sha256, sha384}`; vaportpm-verify outputs it; stage1#22 attests with it; stage0#14
+      and workspace#6 replay PCR5 / PCR2 from it on every boot (verified on c3 TDX, cloudtest
+      `54ccd425a50b`). REMAINING: the flat zkVM format and vaportpm-zk do not carry it (or decide
+      a proof's verifier takes it out of band); vaportpm-zk follows vaportpm `main` and its
+      fixtures lack `gpt`.
 - [ ] **`init_on_free=1` kills the TD on GCE TDX** (silent reset; dropped, `init_on_alloc=1` kept).
       Root cause parked. A triple fault and a TD kill look the same from inside; a #DF handler
       that dumps state before the triple fault would tell them apart.
