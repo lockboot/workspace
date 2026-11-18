@@ -8,15 +8,8 @@ has them. Every cloud-platform claim cites the doc or the observed behaviour it 
 Scope: GCP Confidential VMs: n2d SEV / SEV-SNP and c3 TDX. EC2 and GCP Arm are out of scope
 (blocked, below) and do not hold the release.
 
-| Repo | PR | Branch |
-|---|---|---|
-| stage0 | lockboot/stage0#14 | `gpt-digest` |
-| stage1 | lockboot/stage1#22 | `gpt-digest` |
-| stage2 | lockboot/stage2#5 | `grow-then-reboot` |
-| workspace | lockboot/workspace#6 | `pcr-replay-gpt-digest` |
-
-vaportpm v0.4.1 is released; stage1 and stage2 pin it. All four PRs are ready for review, CI
-green on the three stage repos (the workspace has no checks).
+The changeset is merged (2026-11-18): lockboot/stage0#14, lockboot/stage1#22, lockboot/stage2#5
+and lockboot/workspace#6, on vaportpm v0.4.1, which stage1 and stage2 pin.
 
 In order:
 
@@ -28,7 +21,9 @@ In order:
 - [x] **Local `make selftest`, both arches** (2026-11-18): ALL PASS on the final trees (stage0
       without the debug record, commit-date `os-release` in stage0 and stage1, Fedora tag from
       the pinned kernel). UKI sha256: x86_64 `fecbe639b4bb9fa0`, aarch64 `fef50d8d91a5510f`;
-      unsigned `stage0.efi`: x86_64 `888872691851329e`, aarch64 `d025bcc8739882e3`.
+      unsigned `stage0.efi`: x86_64 `888872691851329e`, aarch64 `d025bcc8739882e3`. CI's builds
+      of the same heads are byte-identical on both arches (stage0 through PCR4 and the unsigned
+      body; every file in stage1's artifact).
 - [x] **GCP gate on the final heads** (2026-11-18, cloudtest `be236c1f6330`,
       `tools/cloudtest/`): n2d SEV, n2d SEV-SNP and c3 TDX each GATE PASS. Per VM, on both payload
       boots: stage1's attestation verifies (vaportpm-verify v0.4.1), its nonce is sha256(stage2),
@@ -40,15 +35,6 @@ In order:
       certificate, so the chain stops at stage1. The run predates two byte changes: stage0 without
       the linker's debug record, and the UKI's `os-release` version string. Not re-run (decided
       2026-11-18): the mechanisms are unchanged and the replay is reproducible end to end.
-- [ ] Merge the four PRs together.
-- [ ] **Confirm on the next CI runs** (stage0#14, stage1#22), for changes CI alone can show:
-  - stage0: CI's unsigned binaries equal a local build. They differed in the linker's debug
-    record (`REPRODUCIBLE-BUILDS.md`, trap 3); the UEFI targets now link with `/DEBUG:NONE`. A
-    local build under CI's settings (`CI=true`) already equals the normal local build on both
-    arches. Compare PCR4 in CI's `pcrs.json` with the local one.
-  - stage1: the `uki-<arch>` artifact is flat. `release-docker` extracts it into
-    `tools/build-uki/<arch>`, and since July the artifact had been rooted at the repo root,
-    which no tag has run. The docker job itself first runs at a tag.
 - [ ] **Tag stage0, stage1, stage2** (`RELEASING.md`). Not yet: the user decides when, and the
       versions (a crate version bump changes the UKI bytes; the release is what the tag builds).
       These are the first tags under the release workflows, so confirm: the draft-then-publish
