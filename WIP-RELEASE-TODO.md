@@ -15,7 +15,8 @@ Scope: GCP Confidential VMs: n2d SEV / SEV-SNP and c3 TDX. EC2 and GCP Arm are o
 | stage2 | lockboot/stage2#5 | `grow-then-reboot` |
 | workspace | lockboot/workspace#6 | `pcr-replay-gpt-digest` |
 
-vaportpm v0.4.1 is released; stage1 and stage2 pin it. All four PRs are draft with CI green.
+vaportpm v0.4.1 is released; stage1 and stage2 pin it. All four PRs are ready for review, CI
+green on the three stage repos (the workspace has no checks).
 
 In order:
 
@@ -24,10 +25,10 @@ In order:
       `hkdf` module (nvme-auth no longer needs it), so `init` and `build.sh` drop it. `build.sh`
       extracts exactly the RPMs `fedora-deps.mk` pins, and `update-fedora-deps` removes the
       previous ones: before, a bump without a clean silently rebuilt the old kernel.
-      Working tree, uncommitted.
-- [x] **Local `make selftest`, both arches** (2026-11-18): ALL PASS on the working trees, with
-      7.2.11 confirmed in the boot logs. UKI sha256: x86_64 `e0bc2bbc860aa046`, aarch64
-      `8c09afca2f37aebd`.
+- [x] **Local `make selftest`, both arches** (2026-11-18): ALL PASS on the final trees (stage0
+      without the debug record, commit-date `os-release` in stage0 and stage1, Fedora tag from
+      the pinned kernel). UKI sha256: x86_64 `fecbe639b4bb9fa0`, aarch64 `fef50d8d91a5510f`;
+      unsigned `stage0.efi`: x86_64 `888872691851329e`, aarch64 `d025bcc8739882e3`.
 - [x] **GCP gate on the final heads** (2026-11-18, cloudtest `be236c1f6330`,
       `tools/cloudtest/`): n2d SEV, n2d SEV-SNP and c3 TDX each GATE PASS. Per VM, on both payload
       boots: stage1's attestation verifies (vaportpm-verify v0.4.1), its nonce is sha256(stage2),
@@ -36,51 +37,31 @@ In order:
       the reboot after the provisioning reboot. stage0 `stage0-45bb278f8fed` (stage0#14 head),
       UKI `e0bc2bbc860aa046` (= CI's build of stage1#22's head), stage2#5 head plus the
       pivot-init evidence printout. Shielded (non-confidential) VMs are not tested: no AK
-      certificate, so the chain stops at stage1.
-- [ ] **Release tooling fixes** (working trees, uncommitted): `stage0/tools/publish/{ec2,gcp}/
-      create.sh` verify with `--source-ref refs/tags/$VERSION` and `gh release verify-asset`, and
-      read `os-release` as data instead of sourcing it; `stage1/tools/publish.sh` deleted
-      (`lockboot-deploy create` replaces it); stage1 `release-docker` gains
-      `docker/setup-qemu-action`. Tested: the two `gh` checks against vaportpm v0.4.1, the
-      `os-release` parser on good, hostile and incomplete input. NOT tested: `create.sh`'s release
-      path end to end and the docker job, which need a stage0 release and a stage1 tag.
+      certificate, so the chain stops at stage1. The run predates two byte changes: stage0 without
+      the linker's debug record, and the UKI's `os-release` version string. Not re-run (decided
+      2026-11-18): the mechanisms are unchanged and the replay is reproducible end to end.
 - [ ] Merge the four PRs together.
-- [ ] **Tag stage0, stage1, stage2** (`RELEASING.md`). These are the first tags in those repos, so
-      confirm: the draft-then-publish release (proven only on vaportpm), the attestation subject
-      names (`gh attestation verify --format json`), the release-notes edits made by later jobs,
-      the first ghcr package push (org package-creation policy unknown), stage1's multi-arch
-      `release-docker` build, and `create.sh <arch> <tag>` against the new stage0 release.
+- [ ] **Confirm on the next CI runs** (stage0#14, stage1#22), for changes CI alone can show:
+  - stage0: CI's unsigned binaries equal a local build. They differed in the linker's debug
+    record (`REPRODUCIBLE-BUILDS.md`, trap 3); the UEFI targets now link with `/DEBUG:NONE`. A
+    local build under CI's settings (`CI=true`) already equals the normal local build on both
+    arches. Compare PCR4 in CI's `pcrs.json` with the local one.
+  - stage1: the `uki-<arch>` artifact is flat. `release-docker` extracts it into
+    `tools/build-uki/<arch>`, and since July the artifact had been rooted at the repo root,
+    which no tag has run. The docker job itself first runs at a tag.
+- [ ] **Tag stage0, stage1, stage2** (`RELEASING.md`). Not yet: the user decides when, and the
+      versions (a crate version bump changes the UKI bytes; the release is what the tag builds).
+      These are the first tags under the release workflows, so confirm: the draft-then-publish
+      release (proven only on vaportpm), the attestation subject names (`gh attestation verify
+      --format json`), the release-notes edits made by later jobs, the first ghcr package push
+      (org package-creation policy unknown), stage1's multi-arch `release-docker` build with
+      `docker/setup-qemu-action`, and `stage0/tools/publish/{ec2,gcp}/create.sh <arch> <tag>`
+      against the new stage0 release (its `--source-ref refs/tags/<tag>` and `gh release
+      verify-asset` checks are tested only against vaportpm v0.4.1).
 
 ## Open
 
 Which of these block the release is undecided.
-
-Release tooling:
-
-- [ ] Publish per-release cloud image IDs and the owner account / project (release notes stay
-      editable under immutability).
-- [ ] Single-region publish; no image deprecation / deregistration step
-      (`gcloud compute images deprecate`, `aws ec2 enable-image-deprecation`).
-- [ ] stage1's pre-split releases `v0.1.0` / `v0.2.0` ship an aarch64 varstore trusting Debian's
-      public SnakeOil KEK + db. The user archives them in due time; check whether any AMI / GCP
-      image was published from them.
-- [ ] Not yet reviewed: `stage0/tools/publish/cleanup.sh`, `gcp/get-console.sh`,
-      `gcp/install-gcloud.sh`.
-
-GCP:
-
-- [ ] **Firmware on a grown volume (untested).** After a PD resize the backup GPT is no longer at
-      the disk's end. Expect the firmware to measure the primary unchanged; if it repairs or
-      relocates the backup header, PCR5 / PCR2 move without stage2 writing anything. Test: stop,
-      grow the PD, start; confirm the GPT digest is unchanged before stage2 acts, then the grow +
-      reboot + reinit.
-- [?] **`serial-port-enable=true`**: every run sets it, so whether output needs it is still
-      untested (one boot with, one without, compare `get-serial-port-output`). Docs: it controls
-      interactive access, off by default; if it must stay on, console input reaches the firmware
-      and kernel for anyone with the project's credentials.
-- [ ] Stale image `lockboot-x86-64-26-02-fc41` (2026-02-09) in project `lockboot`: delete by hand.
-
-Docs and build:
 
 - [ ] `CONSOLE-OUTPUT.md` matrix is out of date: local aarch64 UEFI ConOut is captured now
       (`stage0/build/aarch64/boot-*.log` carry the `stage0:` lines), and GCP x86_64 captured all
@@ -138,5 +119,8 @@ Docs and build:
   and `lockboot-test` are kept empty between runs.
 - Stopping the host `docker exec` does not stop the in-container process: run console followers
   under an in-container `timeout`.
+- Decided 2026-11-18, pre-release software: no per-release cloud image IDs are published, images
+  are published to one region, and there is no image deprecation step. stage1's `v0.1.0` /
+  `v0.2.0` are pre-releases and stay as they are.
 - `lockboot-deploy create --args` applies to `_stage2` only. `_stage1.args` would become the UKI's
   LoadOptions, which it ignores under Secure Boot, so this is left as is.
