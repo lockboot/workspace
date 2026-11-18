@@ -4,7 +4,7 @@ Lock.Boot is a **measured** boot chain: stage0 and the stage1 UKI are hashed int
 attestation is checked against expected values. That only means anything if the same source produces
 the same bytes: a verifier (or an auditor rebuilding from source) must be able to reproduce the exact
 `stage0.efi` and `linux.efi` that CI published, and get the same PCRs. This file explains what makes
-the builds bit-for-bit reproducible, the two non-obvious traps that broke it, and how to verify it.
+the builds bit-for-bit reproducible, the non-obvious traps that broke it, and how to verify it.
 
 Scope: the chain repos `stage0` and `stage1`. Both build inside the shared `lockboot:build` image
 (`stage0/Dockerfile.build`, identical in stage1) via their Makefiles.
@@ -19,7 +19,8 @@ Scope: the chain repos `stage0` and `stage1`. Both build inside the shared `lock
 2. **`SOURCE_DATE_EPOCH=0`.** Set in both `Dockerfile.build`s and in `stage1/tools/build-uki/build.sh`,
    so any timestamp baked into an artifact is fixed. FAT timestamps in the boot disk are separately
    normalized (`stage0/tools/normalize-fat-timestamps.py`); the UKI is assembled deterministically by
-   `mkuki`.
+   `mkuki`. The `yy.mm` version in the UKI's embedded `os-release` is the committer date (UTC) of
+   the commit being built, passed in by stage1's Makefile, never the build date.
 3. **Locked dependencies.** `Cargo.lock` is committed in every crate, and the build recipes pass
    `--locked` so a build can never silently resolve newer transitive deps.
 4. **Deterministic linking.** Static musl / UEFI builds use `rust-lld` + `+crt-static` via per-target
@@ -28,7 +29,7 @@ Scope: the chain repos `stage0` and `stage1`. Both build inside the shared `lock
    repo owns its rustflags (CI checks out each repo alone, so it must be self-sufficient).
 5. **Path canonicalization** -- the subtle part, below.
 
-## The two path traps
+## The path traps
 
 rustc embeds absolute **source paths** into binaries (panic `Location` strings, some debuginfo). If
 those paths depend on the build environment, two environments building identical source produce
@@ -68,6 +69,22 @@ remap covers every target arch.
 > `trim-paths` (the Cargo profile option) would replace all of this cleanly, but it is still
 > nightly-only as of Rust 1.91, so we use the stable `--remap-path-prefix`.
 
+### 3. The linker's debug record (UEFI targets)
+
+rustc links the UEFI targets with `/DEBUG`. The linker then writes a `.pdb` and puts a debug record
+in the image: the `.pdb`'s file name and a GUID that is a hash of the `.pdb`'s contents. The `.pdb`
+records where the toolchain is installed -- the path of `rustc` and of the sysroot's rlibs, so
+`/tmp/.rustup` in CI and `/src/.rustup` locally. The linker writes those paths, so
+`--remap-path-prefix` does not reach them. `stage0.efi`, `ena.efi` and `gvnic.efi` each differed
+between CI and a local build in exactly those 8 GUID bytes, which changes the Authenticode hash and
+PCR4. Fix, in `stage0/.cargo/config.toml` for both UEFI targets:
+
+```toml
+"-C", "link-arg=/DEBUG:NONE",
+```
+
+No `.pdb` is written and the image carries no debug record.
+
 ## Bumping the toolchain (READ THIS)
 
 The rust-src remap hardcodes **the toolchain version** (FROM path) and **the rustc commit-hash** (TO).
@@ -87,7 +104,7 @@ CI uploads build artifacts on every push to `main` and on PRs (`stage0/.github/w
 
 ```sh
 # 1. Build locally (same repo, same commit) and note the hashes:
-#    stage1:  make x86_64 stage2-x86_64   -> tools/build-uki/x86_64/{linux.efi,stage2}
+#    stage1:  make x86_64 stage2-x86_64   -> tools/build-uki/x86_64/linux.efi, build/x86_64/stage2
 #    stage0:  make build/x86_64/stage0.efi
 # 2. Grab the CI artifacts from the run for that commit:
 gh run download <run-id> -R lockboot/stage1 -n uki-x86_64   -D ci-s1

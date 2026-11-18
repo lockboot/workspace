@@ -128,6 +128,7 @@ class Event(TypedDict):
     banks: NotRequired[list[str]]   # only extended in these banks
     digests: NotRequired[dict[str, str]]  # bank -> hex, as the producer computed them
     value: NotRequired[dict[str, str]]    # instead of an extend: the PCR's pinned value here
+    from_attestation: NotRequired[Literal["gpt"]]  # digest from the attestation's field of this name
 
 
 # A platform's firmware logging an event type into a different PCR than the boot chain's files
@@ -164,9 +165,14 @@ class PcrsDoc(TypedDict):
     pcrs: dict[str, dict[str, str]]  # vaportpm layout: bank -> pcr -> hex
 
 
+class AttestationDoc(PcrsDoc):
+    gpt: NotRequired[dict[str, str]]  # bank -> hex: the boot disk's H(UEFI_GPT_DATA)
+
+
 Hasher = Callable[..., "hashlib._Hash"]
 InputKey = tuple[str, str]          # (file label, input name)
 Quote = dict[tuple[str, int], str]  # (bank, pcr) -> hex
+Supplied = dict[str, dict[str, bytes]]  # attestation field ("gpt") -> bank -> digest
 
 
 class Missing(Exception):
@@ -298,6 +304,9 @@ class ReplayFile:
         rf.extends = {e["pcr"] for e in rf.events}
         if rf.entry is not None and rf.entry not in rf.artifacts:
             raise Bad(f"{path}: entry {rf.entry!r} is not a declared artifact")
+        for e in rf.events:
+            if e.get("from_attestation", "gpt") != "gpt":
+                raise Bad(f"{path}: unknown from_attestation {e['from_attestation']!r}")
         for r in rf.routes:
             if not (isinstance(r.get("type"), str) and all(isinstance(r.get(k), int) and 0 <= r[k] < NPCR
                                                            for k in ("from", "to")) and r["from"] != r["to"]):
@@ -472,7 +481,7 @@ def bind_inputs(files: list[ReplayFile], given: dict[str, bytes]) -> tuple[dict[
 
 
 # --- replay -----------------------------------------------------------------------------------------
-EventStatus = Literal["verified", "derived", "pinned", "unchecked"]
+EventStatus = Literal["verified", "derived", "pinned", "unchecked", "supplied"]
 
 
 @dataclass
@@ -481,6 +490,7 @@ class Trust:
     derived: int = 0                                     # re-derived, nothing embedded to compare
     pinned: list[str] = field(default_factory=list)      # no derivation: taken on the file's word
     unchecked: list[str] = field(default_factory=list)   # derivable, but an artifact was not supplied
+    supplied: list[str] = field(default_factory=list)    # digest from the attestation, bound by the quote
 
 
 @dataclass
@@ -495,7 +505,7 @@ def extend(bank: str, v: bytes, d: bytes) -> bytes:
 
 
 def replay(files: list[ReplayFile], banks: list[str], artifacts: dict[str, bytes],
-           inputs: dict[InputKey, bytes], verbose: bool) -> Result:
+           inputs: dict[InputKey, bytes], supplied: Supplied, verbose: bool) -> Result:
     val = {b: {p: reset_value(p, digest_size(b)) for p in range(NPCR)} for b in banks}
     lost: dict[str, dict[int, str]] = {b: {} for b in banks}       # pcr -> why its value is unknown
     cov: dict[int, str | None] = {p: "no file models it from reset" for p in range(NPCR)}  # None: modelled
@@ -540,22 +550,32 @@ def replay(files: list[ReplayFile], banks: list[str], artifacts: dict[str, bytes
                 except Missing as e:
                     why = str(e)
             st: EventStatus | None = None
+            sup = supplied.get(ev["from_attestation"]) if "from_attestation" in ev else None
             for b in banks:
                 if "banks" in ev and b not in ev["banks"]:
                     continue
                 emb_hex = ev.get("digests", {}).get(b)
                 emb = bytes.fromhex(emb_hex) if emb_hex else None
+                derived: bytes | None = None
                 if data is not None:
-                    d = event_digest(ev, data, b)
+                    d = derived = event_digest(ev, data, b)
                     if emb is not None and emb != d:
                         errors.append(f"{what}: {b} digest re-derives to {d.hex()[:16]}..., "
                                       f"file says {emb.hex()[:16]}...")
                     st = "verified" if emb is not None else (st or "derived")
                 elif emb is not None:
                     d, st = emb, ("pinned" if "derive" not in ev else "unchecked")
-                else:
+                elif sup is None:
                     lost[b].setdefault(p, f"{what}: {why}" if why else f"{what}: no {b} digest")
                     continue
+                if sup is not None:     # the attestation's value wins; the file's is the first boot's
+                    if b not in sup:
+                        lost[b].setdefault(p, f"{what}: the attestation has no {b} {ev['from_attestation']}")
+                        continue
+                    d, st = sup[b], "supplied"
+                    same = "" if derived is None else (", = the file's derivation" if d == derived
+                                                       else ", differs from the file's derivation")
+                    why = f"{b} {ev['from_attestation']} from the attestation{same}"
                 if p not in lost[b]:
                     val[b][p] = extend(b, val[b][p], d)
             if st == "verified":
@@ -566,6 +586,8 @@ def replay(files: list[ReplayFile], banks: list[str], artifacts: dict[str, bytes
                 trust.pinned.append(what)
             elif st == "unchecked":
                 trust.unchecked.append(f"{what} ({why})")
+            elif st == "supplied":
+                trust.supplied.append(f"{what} ({why})")
             if verbose:
                 print(f"  {st or 'lost':9} {what}" + (f"  [{why}]" if why else ""), file=sys.stderr)
     if errors:
@@ -578,16 +600,20 @@ def replay(files: list[ReplayFile], banks: list[str], artifacts: dict[str, bytes
 
 
 # --- quotes -----------------------------------------------------------------------------------------
-def read_quote(path: str) -> Quote:
-    """A vaportpm attestation / any JSON with a top-level "pcrs" {bank: {n: hex}}, or a serial log
-    with "PCR <bank> <nn> <hex>" lines."""
+def read_quote(path: str) -> tuple[Quote, Supplied]:
+    """A vaportpm attestation / any JSON with a top-level "pcrs" {bank: {n: hex}} (and a vaportpm
+    attestation's "gpt" {bank: hex}, the digests events marked "from_attestation" take), or a
+    serial log with "PCR <bank> <nn> <hex>" lines."""
     with open(path, "rb") as f:
         raw = f.read()
     quote: Quote
+    supplied: Supplied = {}
+    doc: AttestationDoc | None = None
     try:
-        doc = cast(PcrsDoc, json.loads(raw))
+        doc = cast(AttestationDoc, json.loads(raw))
         quote = {(b, int(i)): v.lower() for b, pcrs in doc["pcrs"].items() for i, v in pcrs.items()}
     except (ValueError, KeyError, AttributeError, TypeError):
+        doc = None
         txt = raw.decode("latin1").replace("\r", "")
         quote = {(b, int(i)): v for b, i, v in
                  re.findall(r"^(?:payload: )?PCR (\w+) (\d\d) ([0-9a-f]+)$", txt, re.M)}
@@ -596,7 +622,13 @@ def read_quote(path: str) -> Quote:
     for (b, i), v in sorted(quote.items()):
         if hasattr(hashlib, b) and not re.fullmatch(f"[0-9a-f]{{{2 * digest_size(b)}}}", v):
             raise Bad(f"quote {path}: {b} PCR{i} is not {digest_size(b)} bytes of hex: {v!r}")
-    return quote
+    if doc is not None and "gpt" in doc:
+        gpt = doc["gpt"]
+        for b, v in gpt.items():
+            if not re.fullmatch(f"[0-9a-f]{{{2 * digest_size(b)}}}", v.lower()):
+                raise Bad(f"quote {path}: gpt {b} is not {digest_size(b)} bytes of hex: {v!r}")
+        supplied["gpt"] = {b: bytes.fromhex(v) for b, v in gpt.items()}
+    return quote, supplied
 
 
 def parse_inputs(ap: argparse.ArgumentParser, specs: list[str]) -> dict[str, bytes]:
@@ -663,8 +695,8 @@ def main() -> None:
         inputs, notes = bind_inputs(files, given)
         for note in notes:
             print(f"bound: {note}", file=sys.stderr)
-        result = replay(files, banks, load_artifacts(a.artifacts), inputs, a.verbose)
-        seen = read_quote(a.check) if a.check else None
+        seen, supplied = read_quote(a.check) if a.check else (None, {})
+        result = replay(files, banks, load_artifacts(a.artifacts), inputs, supplied, a.verbose)
     except Bad as e:
         print(f"error: {e}", file=sys.stderr)
         sys.exit(2)
@@ -674,7 +706,10 @@ def main() -> None:
             print(f"{b:7} PCR{p:<2} not reproduced: {why}", file=sys.stderr)
     t = result.trust
     print(f"events: {t.verified} re-derived and verified, {t.derived} derived, "
-          f"{len(t.pinned)} pinned, {len(t.unchecked)} unchecked", file=sys.stderr)
+          f"{len(t.pinned)} pinned, {len(t.unchecked)} unchecked, {len(t.supplied)} supplied",
+          file=sys.stderr)
+    for w in t.supplied:
+        print(f"  supplied: {w}", file=sys.stderr)
     for w in t.pinned:
         print(f"  pinned: {w}", file=sys.stderr)
     for w in t.unchecked:
