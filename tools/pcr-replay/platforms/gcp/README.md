@@ -15,7 +15,7 @@ pcr-replay.py platforms/gcp/gcp-n2d-standard-2-sev-snp.replay.json stage0.replay
 | `gcp-n2d-standard-2-sev.replay.json` | `a0b5ff33` | `2c4b6392` | full chain, 2026-11-09 |
 | `gcp-n2d-standard-2-sev-snp.replay.json` | `50597a27` | `2c4b6392` | full chain, 2026-11-09 |
 | `gcp-c3-standard-4-shielded.replay.json` | `d0c70a93` | `1e0e29fc` | stage0 only |
-| `gcp-c3-standard-4-tdx.replay.json` | `0cca9ec1` | `baef2b3d` | full chain, 2026-11-10 (with `route`, below) |
+| `gcp-c3-standard-4-tdx.replay.json` | `0cca9ec1` | `baef2b3d` | full chain, 2026-11-10 (with `route`, below); boots 1-3 of one VM with the attested GPT digest, 2026-11-14 |
 
 Each file re-derives every PCR0-2 event from its logged bytes except the three ACPI DATA events,
 which are pinned (their digests cover ACPI tables the log does not contain). Not covered: t2a / Arm (no network stack in the firmware, below), other
@@ -103,24 +103,17 @@ CC measurement register rather than by PCR (TCG CC mapping: PCR2-6 all map to RT
 boot-chain event type in PCR0-2 after the separator and never in its usual PCR. stage0's replay
 file is unchanged apart from listing its events in log order (GPT before BOOTX64.EFI), which is
 the order they reach PCR2. Verified against the TDX full-chain regression boot (2026-11-10:
-stage0, stage1, stage2, every PCR but IMA's PCR10, sha256 and sha384).
+stage0, stage1, stage2, every PCR but IMA's PCR10, sha256 and sha384), and across three boots of
+one VM, before and after stage2's GPT rewrite, with PCR2 replayed from the attestation's GPT
+digest (2026-11-14).
 
 - Anything binding stage0's identity via PCR4 (sealing policy, attestation policy) needs a TDX
   case: there it is PCR2, which also carries the GPT.
-- The GPT changes after the first boot (stage2 adds its partitions, and again on a disk grow), so
-  a derivation from `boot.disk` reproduces PCR5 (non-TDX) and PCR2 (TDX) on first boots only.
-  PCR2 must stay pinned on TDX: it carries stage0's Authenticode. The attestation carries the
-  boot disk's GPT digests (vaportpm v0.4.1), and stage0's GPT event takes its digest from them,
-  which pins PCR2 and PCR5 on every boot on both (`../../README.md`, "The GPT digest from the
-  attestation").
-
-## Expected (from the 2026-11-05 matrix, before captures were kept)
-
-| Config | PCR0 | PCR1 |
-|---|---|---|
-| n2d Shielded | `d0c70a93` | `09b32fdf` |
-| n2d SEV | `a0b5ff33` | `2c4b6392` |
-| n2d SEV-SNP | `50597a27` | `2c4b6392` |
-| c3 Shielded | `d0c70a93` | `1e0e29fc` |
-| c3 TDX | DHCP timeout, no reading | |
-| t2a Shielded | never booted | |
+- The GPT changes when stage2 adds its partitions (first boot, and again on a disk grow), so a
+  derivation from `boot.disk` reproduces PCR5 (non-TDX) and PCR2 (TDX) only on a boot before
+  that rewrite. The attestation carries the boot disk's GPT digests (vaportpm v0.4.1) and
+  stage0's GPT event takes its digest from them, which pins PCR2 and PCR5 on every boot
+  (`../../README.md`, "The GPT digest from the attestation").
+- stage2's data key binds both PCRs. It reboots after a GPT rewrite and derives the key only on
+  a boot that wrote nothing, so the key follows the final layout on TDX as elsewhere (stage2
+  `PCR-BINDING.md`).
