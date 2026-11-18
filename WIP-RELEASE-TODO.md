@@ -55,13 +55,15 @@ Needs a decision / quick check:
       docs produce the `_stage1` document.
 
 Follow-ups (filed / tracked):
-- [ ] **GPT digests in the attestation** -- lockboot/vaportpm#12 (open). DONE in vaportpm v0.4.1:
-      vaportpm-attest reads the boot disk's GPT (not the event log) and carries
+- [x] **GPT digests in the attestation** -- lockboot/vaportpm#12, CLOSED 2026-11-18. vaportpm
+      v0.4.1: vaportpm-attest reads the boot disk's GPT (not the event log) and carries
       `gpt: {sha256, sha384}`; vaportpm-verify outputs it; stage1#22 attests with it; stage0#14
       and workspace#6 replay PCR5 / PCR2 from it on every boot (verified on c3 TDX, cloudtest
-      `54ccd425a50b`). REMAINING: the flat zkVM format and vaportpm-zk do not carry it (or decide
-      a proof's verifier takes it out of band); vaportpm-zk follows vaportpm `main` and its
-      fixtures lack `gpt`.
+      `54ccd425a50b`). The flat zkVM format and vaportpm-zk are unchanged BY DESIGN: the proof
+      establishes the chain of trust behind the quote and does not rebuild PCRs; the digests are
+      replay input and travel outside the proof.
+- [ ] (later, housekeeping) vaportpm-zk's `Cargo.lock` still pins vaportpm 0.1.0 (785438f) though
+      its manifest follows `branch = "main"`; re-lock and re-run its tests when it is next touched.
 - [ ] **`init_on_free=1` kills the TD on GCE TDX** (silent reset; dropped, `init_on_alloc=1` kept).
       Root cause parked. A triple fault and a TD kill look the same from inside; a #DF handler
       that dumps state before the triple fault would tell them apart.

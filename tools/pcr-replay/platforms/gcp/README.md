@@ -108,10 +108,11 @@ stage0, stage1, stage2, every PCR but IMA's PCR10, sha256 and sha384).
 - Anything binding stage0's identity via PCR4 (sealing policy, attestation policy) needs a TDX
   case: there it is PCR2, which also carries the GPT.
 - The GPT changes after the first boot (stage2 adds its partitions, and again on a disk grow), so
-  the replay, which derives it from `boot.disk`, reproduces PCR5 (non-TDX) and PCR2 (TDX) on first
-  boots only. PCR2 must stay pinned on TDX: it carries stage0's Authenticode. Planned: the
-  attestation carries the GPT event digest as auxiliary data, which pins PCR2 and PCR5 on every
-  boot on both (lockboot/vaportpm#12; `../../README.md`, "Open: GPT digest from the attestation").
+  a derivation from `boot.disk` reproduces PCR5 (non-TDX) and PCR2 (TDX) on first boots only.
+  PCR2 must stay pinned on TDX: it carries stage0's Authenticode. The attestation carries the
+  boot disk's GPT digests (vaportpm v0.4.1), and stage0's GPT event takes its digest from them,
+  which pins PCR2 and PCR5 on every boot on both (`../../README.md`, "The GPT digest from the
+  attestation").
 
 ## Expected (from the 2026-11-05 matrix, before captures were kept)
 
