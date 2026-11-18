@@ -130,6 +130,7 @@ check-harness: ## Fail if any repo's build.mk / Dockerfile.build drifted from st
 # $HOME -- never on disk, never under /src (which every lockboot:build container can read). Don't run
 # builds while a logged-in shell is open: the builders are --privileged.
 #   make deploy-shell LOGIN=aws|gcp|both       # sign in, interactive shell, sign out on exit
+#   make deploy-shell-aws / deploy-shell-gcp   # the same, one cloud
 #   make deploy-shell                          # tools only, no login
 #   make deploy-shell LOGIN=gcp CMD='gcloud compute images list --no-standard-images'
 #   make deploy-exec CMD='aws sts get-caller-identity'   # run inside the OPEN shell (its login)
@@ -171,6 +172,13 @@ deploy-shell: deploy-image ## Shell (or CMD='...') in lockboot:deploy; LOGIN=aws
 		--tmpfs /home/deploy:rw,mode=0700,uid=$$(id -u),gid=$$(id -g) \
 		-v $(DEPLOY_HOST_WS):/src $(DEPLOY_ENV) -e DEPLOY_LOGIN=$(LOGIN) -e DEPLOY_CMD -e GH_TOKEN \
 		-w /src $(DEPLOY_IMAGE)
+
+.PHONY: deploy-shell-aws deploy-shell-gcp
+# deploy-shell signed in to one cloud. Still one session at a time (fixed container name).
+deploy-shell-aws: override LOGIN := aws
+deploy-shell-gcp: override LOGIN := gcp
+deploy-shell-aws: deploy-shell ## deploy-shell signed in to AWS only (= LOGIN=aws)
+deploy-shell-gcp: deploy-shell ## deploy-shell signed in to GCP only (= LOGIN=gcp)
 
 .PHONY: deploy-exec
 # Run CMD inside the RUNNING deploy-shell (same tmpfs $HOME, so the same live login). Fails if no
