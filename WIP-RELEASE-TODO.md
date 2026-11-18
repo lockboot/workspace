@@ -5,7 +5,7 @@ has them. Every cloud-platform claim cites the doc or the observed behaviour it 
 
 ## This release: GCP x86_64
 
-Scope: n2d Shielded / SEV / SEV-SNP and c3 Shielded / TDX. EC2 and GCP Arm are out of scope
+Scope: GCP Confidential VMs: n2d SEV / SEV-SNP and c3 TDX. EC2 and GCP Arm are out of scope
 (blocked, below) and do not hold the release.
 
 | Repo | PR | Branch |
@@ -28,9 +28,15 @@ In order:
 - [x] **Local `make selftest`, both arches** (2026-11-18): ALL PASS on the working trees, with
       7.2.11 confirmed in the boot logs. UKI sha256: x86_64 `e0bc2bbc860aa046`, aarch64
       `8c09afca2f37aebd`.
-- [ ] **GCP re-test on the final heads:** reboot test on n2d SEV-SNP and c3 TDX (last pass:
-      cloudtest `cd177e5753e6`, before the vaportpm v0.4.1 repin and the kernel bump), full chain
-      replayed by `pcr-replay`.
+- [x] **GCP gate on the final heads** (2026-11-18, cloudtest `be236c1f6330`,
+      `tools/cloudtest/`): n2d SEV, n2d SEV-SNP and c3 TDX each GATE PASS. Per VM, on both payload
+      boots: stage1's attestation verifies (vaportpm-verify v0.4.1), its nonce is sha256(stage2),
+      the quoted PCRs replay against the golden platform file with the attested GPT digest, the
+      final PCRs replay with stage2's file (unsigned; covers PCR14 / PCR15), and `/data` survives
+      the reboot after the provisioning reboot. stage0 `stage0-45bb278f8fed` (stage0#14 head),
+      UKI `e0bc2bbc860aa046` (= CI's build of stage1#22's head), stage2#5 head plus the
+      pivot-init evidence printout. Shielded (non-confidential) VMs are not tested: no AK
+      certificate, so the chain stops at stage1.
 - [ ] **Release tooling fixes** (working trees, uncommitted): `stage0/tools/publish/{ec2,gcp}/
       create.sh` verify with `--source-ref refs/tags/$VERSION` and `gh release verify-asset`, and
       read `os-release` as data instead of sourcing it; `stage1/tools/publish.sh` deleted
